@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { PrismaClient } from "@prisma/client";
+
+const db = new PrismaClient();
 
 // GET /api/custom-models - List all custom models
 export async function GET() {

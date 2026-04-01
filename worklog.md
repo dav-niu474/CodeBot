@@ -43,3 +43,117 @@ Stage Summary:
 - MemoryView had 5 bugs (JSX mismatch + 4 ScrollArea without import)
 - All 4 view files now use native scrolling
 - ESLint clean, dev server compiling successfully
+
+---
+Task ID: 3-a
+Agent: Main Orchestrator
+Task: Build Command Palette (Cmd+K) component for v2.4.0
+
+Work Log:
+- Read worklog.md, page.tsx, types.ts, chat-store.ts, Sidebar.tsx to understand project architecture
+- Created `src/components/codebot/CommandPalette.tsx` — a fully-featured global command palette
+- Integrated CommandPalette into `src/app/page.tsx` after MobileSidebar
+- Fixed ESLint `react-hooks/set-state-in-effect` errors (3 issues):
+  1. Moved query/selectedIndex reset from useEffect into a `toggleOpen` callback
+  2. Replaced query-change useEffect with inline reset in `handleQueryChange` onChange handler
+  3. Focus effect uses requestAnimationFrame with cleanup (acceptable side-effect pattern)
+- Ran lint: 0 errors
+- Verified dev server: page compiling and serving successfully (200 responses)
+
+Stage Summary:
+- CommandPalette component: ~500 lines TypeScript/TSX
+- Features implemented:
+  - Ctrl+K / Cmd+K global keyboard shortcut to toggle
+  - Fixed overlay with backdrop blur (not shadcn Dialog)
+  - Framer Motion animations (scale + opacity open/close)
+  - 11 navigation items (Dashboard, Chat, Model Hub, Tools, Skills, Modes, Memory, Agents, Security, AI Capabilities, Settings)
+  - 3 quick actions (New Chat, Toggle Thinking Mode, Toggle Theme)
+  - Real-time search/filter by label, description, and group
+  - Full keyboard navigation (ArrowUp/Down + Enter + Escape)
+  - Grouped display: Recent → Navigation → Actions
+  - Recent items tracking (in-memory, last 5 selections)
+  - Active view indicator (green dot on current view)
+  - Shortcut badges (N, T, D for actions)
+  - Footer with keyboard hints
+  - Emerald accent on selected item, zinc-900/95 backdrop styling
+  - Custom scrollbar styling for results list
+- No new packages installed; uses existing lucide-react, framer-motion, zustand
+- Purely frontend — no API routes created
+
+---
+Task ID: 3-b
+Agent: Main Orchestrator
+Task: Build Git Management View for v2.4.0
+
+Work Log:
+- Read worklog.md, page.tsx, types.ts, Sidebar.tsx, AgentsView.tsx, SecurityView.tsx to understand project patterns
+- Created `src/app/api/git/route.ts` — Git API endpoint with 5 query types:
+  - `type=status` — porcelain git status with staged/unstaged/untracked file breakdown
+  - `type=log&count=N` — recent commits with hash, author, date, message
+  - `type=branches` — all branches (local + remote) with current branch marked
+  - `type=diff` — diff summary stats + full diff content (limited to 500 lines)
+  - `type=stats` — summary stats (total commits, contributors, branch count, recent activity, latest tag)
+- Fixed shell interpolation bug: `execSync` was interpreting `|` in git format strings as shell pipes. Switched to `execFileSync` with proper array args and `runGitStr` convenience helper.
+- Created `src/components/codebot/GitView.tsx` — Full Git management UI (~490 lines):
+  - Header with GitBranch icon + current branch badge + latest tag + refresh button
+  - Stats row: 4 cards (Total Commits, Branches, Modified Files, Contributors)
+  - Working tree status banner (staged/untracked count with amber/red styling)
+  - 4 tabs: Commits | Branches | Changes | Diff
+  - Commits tab: scrollable list with author avatar/initial, short hash (emerald monospace), truncated message, relative time
+  - Branches tab: local branches with green dot for current + remote branches section
+  - Changes tab: file list with status badges (M=amber, U=sky, A=emerald, D=red) + staged indicator
+  - Diff tab: colorized diff view with line numbers, +/- indicators, green/red background highlights
+  - Contributors section: grid of contributor cards with commit count progress bars
+  - Error state with retry button, loading state with spinner
+  - All scrollable areas use native `overflow-y-auto` (not shadcn ScrollArea)
+- Updated `src/lib/types.ts` — Added 'git' to ActiveView union type
+- Updated `src/components/codebot/Sidebar.tsx` — Added Git nav item with GitBranch icon between AI Caps and Settings
+- Updated `src/app/page.tsx` — Added GitView import and `case 'git'` in ViewContent switch
+- Ran lint: 0 errors
+- Tested all 5 API endpoints: stats (200), log (200), status (200), branches (200), diff (200)
+- Dev server compiling and serving successfully
+
+Stage Summary:
+- API route: `src/app/api/git/route.ts` — 5 endpoint types using `execFileSync`
+- UI component: `src/components/codebot/GitView.tsx` — ~490 lines, 4 tabs, full diff viewer
+- Integration: Sidebar nav item, page.tsx switch case, types.ts ActiveView union
+- Design matches existing views: dark theme, emerald accents, zinc backgrounds, border-border/50 bg-card/50 cards
+- Uses existing animation patterns: container/item variants with staggerChildren
+- No new packages installed
+
+---
+Task ID: 3-c
+Agent: Main Orchestrator
+Task: Upgrade DashboardView to v2.4, add Chat Export, add Keyboard Shortcuts overlay
+
+Work Log:
+- Read worklog.md and all target files (DashboardView.tsx, ChatView.tsx, page.tsx) to understand current state
+- **Task 1 — DashboardView v2.4 upgrade** (`src/components/codebot/DashboardView.tsx`):
+  - Changed version text from `v2.2` to `v2.4` in the header
+  - Added 3 new capabilities to COMPLETE_CAPABILITIES: Command Palette, Git Integration, Chat Export
+  - Added "What's New in v2.4" changelog card before System Status Bar with 6 items using Sparkles icon, same card style (`border-border/50 bg-card/50`)
+- **Task 2 — Chat Export to Markdown** (`src/components/codebot/ChatView.tsx`):
+  - Added `Download` icon import from lucide-react
+  - Added `toast` import from sonner
+  - Added export button (ghost variant, size icon, h-8 w-8) before Thinking Mode toggle in header
+  - Added `handleExportChat` useCallback that generates a Markdown file with header metadata and all messages, triggers download via Blob URL, and shows success toast
+- **Task 3 — Keyboard Shortcuts Overlay** (new file `src/components/codebot/KeyboardShortcuts.tsx`):
+  - Created `'use client'` component with `isOpen` state toggled by `?` key (Shift+/)
+  - Listens for `?` key press via useEffect, ignores when focused on input/textarea/select
+  - Closes on Escape key and backdrop click
+  - Fixed overlay with `bg-black/60 backdrop-blur-sm` backdrop
+  - Card: `max-w-md w-full mx-4 rounded-xl border border-border/50 bg-zinc-900 p-6`
+  - Framer Motion animations: scale 0.95→1, opacity 0→1
+  - 3 shortcut groups (Navigation, Chat, General) with kbd-styled badges (`bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-[11px] font-mono`)
+  - Uses native `overflow-y-auto` for scrollable area (max-h-80)
+  - Integrated into `src/app/page.tsx` right after `<CommandPalette />`
+- Ran lint: 0 errors
+- Dev server compiling and serving successfully
+
+Stage Summary:
+- 3 files modified: DashboardView.tsx, ChatView.tsx, page.tsx
+- 1 new file created: KeyboardShortcuts.tsx (~130 lines)
+- Dashboard: version bump, 3 new capabilities, changelog card with 6 v2.4 features
+- Chat: Markdown export with Download button, full message history export
+- Keyboard Shortcuts: global `?` key overlay, 3 grouped sections, Framer Motion animations
+- No new packages installed, 0 lint errors

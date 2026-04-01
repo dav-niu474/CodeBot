@@ -14,7 +14,10 @@ import { ModesView } from '@/components/codebot/ModesView';
 import { MemoryView } from '@/components/codebot/MemoryView';
 import { AgentsView } from '@/components/codebot/AgentsView';
 import { SecurityView } from '@/components/codebot/SecurityView';
+import { GitView } from '@/components/codebot/GitView';
 import { AnimatePresence, motion } from 'framer-motion';
+import { CommandPalette } from '@/components/codebot/CommandPalette';
+import { KeyboardShortcuts } from '@/components/codebot/KeyboardShortcuts';
 
 function ViewContent({ view }: { view: ActiveView }) {
   switch (view) {
@@ -40,6 +43,8 @@ function ViewContent({ view }: { view: ActiveView }) {
       return <AgentsView />;
     case 'security':
       return <SecurityView />;
+    case 'git':
+      return <GitView />;
     default:
       return <DashboardView />;
   }
@@ -55,6 +60,12 @@ export default function Home() {
 
       {/* Mobile Sidebar (Sheet) */}
       <MobileSidebar />
+
+      {/* Command Palette (Ctrl+K / Cmd+K) */}
+      <CommandPalette />
+
+      {/* Keyboard Shortcuts Overlay (? key) */}
+      <KeyboardShortcuts />
 
       {/* Main Content Area */}
       <main className="flex flex-1 flex-col overflow-hidden">

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { PrismaClient } from "@prisma/client";
+
+const db = new PrismaClient();
 
 // DELETE /api/custom-models/[id] - Delete a custom model
 export async function DELETE(

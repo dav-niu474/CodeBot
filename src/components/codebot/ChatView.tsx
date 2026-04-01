@@ -14,6 +14,7 @@ import {
   Brain,
   ImagePlus,
   X,
+  Download,
 } from 'lucide-react';
 import {
   useRef,
@@ -24,6 +25,7 @@ import {
   type FormEvent,
 } from 'react';
 import { AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
 
 export function ChatView() {
   const {
@@ -276,6 +278,36 @@ export function ChatView() {
     [handleSend]
   );
 
+  const handleExportChat = useCallback(() => {
+    if (messages.length === 0) return;
+    const lines = [];
+    lines.push(`# ${agentConfig.agentName} - Chat Export`);
+    lines.push(`> Exported: ${new Date().toLocaleString()}`);
+    lines.push(`> Model: ${selectedModel || agentConfig.activeModel}`);
+    lines.push(`> Mode: ${activeMode}`);
+    lines.push('');
+
+    for (const msg of messages) {
+      const role = msg.role === 'user' ? '**You**' : `**${agentConfig.agentName}**`;
+      const time = new Date(msg.createdAt).toLocaleTimeString();
+      lines.push(`### ${role} *(${time})*`);
+      lines.push('');
+      lines.push(msg.content || '(empty)');
+      lines.push('');
+      lines.push('---');
+      lines.push('');
+    }
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `chat-${new Date().toISOString().slice(0, 10)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success('Chat exported', { description: 'Markdown file downloaded.' });
+  }, [messages, agentConfig, selectedModel, activeMode]);
+
   const handleStop = useCallback(() => {
     setLoading(false);
     setStreamingMessageId(null);
@@ -356,6 +388,17 @@ export function ChatView() {
           </div>
         </div>
         <div className="ml-auto flex items-center gap-2">
+          {/* Export Chat */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-emerald-500/10"
+            onClick={handleExportChat}
+            title="Export Chat"
+          >
+            <Download className="h-4 w-4" />
+          </Button>
+
           {/* Thinking Mode Toggle */}
           <Button
             variant="ghost"

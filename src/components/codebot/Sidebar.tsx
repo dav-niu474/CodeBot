@@ -201,6 +201,11 @@ const navItems: NavItem[] = [
     icon: <Eye className="h-4 w-4" />,
   },
   {
+    id: 'git',
+    label: 'Git',
+    icon: <GitBranch className="h-4 w-4" />,
+  },
+  {
     id: 'settings',
     label: 'Settings',
     icon: <Settings className="h-4 w-4" />,

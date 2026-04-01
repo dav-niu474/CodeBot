@@ -905,7 +905,8 @@ export type ActiveView =
   | "agents"            // Multi-agent session manager
   | "modes"             // Running mode selector
   | "security"          // Security & permissions dashboard
-  | "model-hub";        // NVIDIA model browser / selector
+  | "model-hub"         // NVIDIA model browser / selector
+  | "git";              // Git management view
 
 /** A tool invocation within a conversation turn */
 export interface ToolCall {

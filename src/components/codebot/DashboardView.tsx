@@ -112,6 +112,18 @@ const COMPLETE_CAPABILITIES: CapabilityItem[] = [
     text: 'NVIDIA Multi-Model Support',
     detail: '161 models across 6 categories',
   },
+  {
+    text: 'Command Palette',
+    detail: 'Cmd+K quick navigation & actions',
+  },
+  {
+    text: 'Git Integration',
+    detail: 'Commit log, branches, diff view',
+  },
+  {
+    text: 'Chat Export',
+    detail: 'Export conversations to Markdown',
+  },
 ];
 
 // ── Quick Actions ───────────────────────────────
@@ -262,7 +274,7 @@ export function DashboardView() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-2xl font-bold text-foreground">
-                  CodeBot Agent v2.2
+                  CodeBot Agent v2.4
                 </h1>
                 <Badge
                   variant="outline"
@@ -671,6 +683,38 @@ export function DashboardView() {
               ))}
             </div>
           )}
+        </motion.div>
+
+        {/* What's New in v2.4 */}
+        <motion.div variants={item} className="mb-8">
+          <div className="mb-3 flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-emerald-400" />
+            <h2 className="text-lg font-semibold text-foreground">
+              What's New in v2.4
+            </h2>
+          </div>
+          <Card className="border-border/50 bg-card/50">
+            <CardContent className="p-4">
+              <div className="space-y-1.5">
+                {[
+                  { emoji: '🎨', text: 'Command Palette — Press Cmd+K for quick navigation' },
+                  { emoji: '🔍', text: 'Git Integration — View commits, branches, and diffs' },
+                  { emoji: '📥', text: 'Chat Export — Download conversations as Markdown' },
+                  { emoji: '⌨️', text: 'Keyboard Shortcuts — Press ? for shortcuts overlay' },
+                  { emoji: '🛠️', text: 'Custom Models — Add any OpenAI-compatible API' },
+                  { emoji: '🐛', text: 'UI Fixes — Scroll and layout improvements' },
+                ].map((item, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-zinc-800/30"
+                  >
+                    <span className="text-sm">{item.emoji}</span>
+                    <span className="text-xs text-muted-foreground">{item.text}</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
         </motion.div>
 
         {/* System Status Bar */}
