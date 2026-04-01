@@ -179,3 +179,22 @@ model TokenUsage {
   compressed  Boolean  @default(false)
   createdAt   DateTime @default(now())
 }
+
+// ============ 自定义模型接入 ============
+model CustomModel {
+  id            String   @id @default(cuid())
+  name          String
+  modelId       String   @unique  // Unique model identifier (e.g. "my-custom-model")
+  provider      String   @default("custom")
+  baseUrl       String              // API base URL (e.g. "https://api.openai.com/v1")
+  apiKey        String              // API key (encrypted in real prod, stored as-is here)
+  apiFormat     String   @default("openai")  // "openai" for OpenAI-compatible APIs
+  contextLength Int      @default(8192)
+  supportsStreaming Boolean @default(true)
+  supportsVision   Boolean @default(false)
+  category      String   @default("chat")
+  isEnabled     Boolean  @default(true)
+  config        String?  // Additional JSON config
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
