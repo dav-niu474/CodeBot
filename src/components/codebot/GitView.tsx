@@ -436,7 +436,7 @@ export function GitView() {
 
         {/* ── Tabs ────────────────────────────────── */}
         <motion.div variants={item} className="mb-4">
-          <div className="flex items-center gap-1 rounded-lg border border-border/50 bg-card/50 p-1">
+          <div className="flex items-center gap-1 overflow-x-auto rounded-lg border border-border/50 bg-card/50 p-1">
             {tabs.map((tab) => (
               <button
                 key={tab.id}

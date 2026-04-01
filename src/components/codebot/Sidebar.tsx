@@ -43,6 +43,7 @@ import {
   UserCircle,
   Lightbulb,
   GitBranch,
+  BarChart3,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatDistanceToNow } from 'date-fns';
@@ -199,6 +200,11 @@ const navItems: NavItem[] = [
     id: 'ai-capabilities',
     label: 'AI Caps',
     icon: <Eye className="h-4 w-4" />,
+  },
+  {
+    id: 'analytics',
+    label: 'Analytics',
+    icon: <BarChart3 className="h-4 w-4" />,
   },
   {
     id: 'git',

@@ -15,9 +15,11 @@ import { MemoryView } from '@/components/codebot/MemoryView';
 import { AgentsView } from '@/components/codebot/AgentsView';
 import { SecurityView } from '@/components/codebot/SecurityView';
 import { GitView } from '@/components/codebot/GitView';
+import { AnalyticsView } from '@/components/codebot/AnalyticsView';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CommandPalette } from '@/components/codebot/CommandPalette';
 import { KeyboardShortcuts } from '@/components/codebot/KeyboardShortcuts';
+import { LayoutDashboard, MessageSquare, Cpu, Wrench, Shield } from 'lucide-react';
 
 function ViewContent({ view }: { view: ActiveView }) {
   switch (view) {
@@ -45,13 +47,15 @@ function ViewContent({ view }: { view: ActiveView }) {
       return <SecurityView />;
     case 'git':
       return <GitView />;
+    case 'analytics':
+      return <AnalyticsView />;
     default:
       return <DashboardView />;
   }
 }
 
 export default function Home() {
-  const { activeView } = useChatStore();
+  const { activeView, setActiveView } = useChatStore();
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -68,7 +72,7 @@ export default function Home() {
       <KeyboardShortcuts />
 
       {/* Main Content Area */}
-      <main className="flex flex-1 flex-col overflow-hidden">
+      <main className="flex flex-1 flex-col overflow-hidden pb-14 md:pb-0">
         {/* Mobile Header */}
         <div className="flex items-center gap-3 border-b border-border/50 px-4 py-3 md:hidden">
           <MobileSidebarTrigger />
@@ -96,6 +100,35 @@ export default function Home() {
           </AnimatePresence>
         </div>
       </main>
+
+      {/* Mobile Bottom Nav */}
+      <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-border/50 bg-zinc-950/95 backdrop-blur-xl md:hidden">
+        <div className="flex items-center justify-around py-2 safe-bottom">
+          {[
+            { view: 'dashboard' as const, icon: LayoutDashboard, label: 'Home' },
+            { view: 'chat' as const, icon: MessageSquare, label: 'Chat' },
+            { view: 'model-hub' as const, icon: Cpu, label: 'Models' },
+            { view: 'tools' as const, icon: Wrench, label: 'Tools' },
+            { view: 'security' as const, icon: Shield, label: 'More' },
+          ].map(({ view, icon: Icon, label }) => {
+            const isActive = activeView === view;
+            return (
+              <button
+                key={view}
+                onClick={() => setActiveView(view)}
+                className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg transition-colors ${
+                  isActive
+                    ? 'text-emerald-400'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Icon className="h-5 w-5" />
+                <span className="text-[10px]">{label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
     </div>
   );
 }

@@ -158,7 +158,7 @@ export function MessageBubble({
       {/* Content */}
       <div
         className={cn(
-          'flex max-w-[80%] flex-col gap-1',
+          'flex max-w-[90%] sm:max-w-[80%] flex-col gap-1',
           isUser ? 'items-end' : 'items-start'
         )}
       >

@@ -906,6 +906,7 @@ export type ActiveView =
   | "modes"             // Running mode selector
   | "security"          // Security & permissions dashboard
   | "model-hub"         // NVIDIA model browser / selector
+  | "analytics"         // Token usage analytics dashboard
   | "git";              // Git management view
 
 /** A tool invocation within a conversation turn */

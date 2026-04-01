@@ -124,6 +124,14 @@ const COMPLETE_CAPABILITIES: CapabilityItem[] = [
     text: 'Chat Export',
     detail: 'Export conversations to Markdown',
   },
+  {
+    text: 'Session Manager',
+    detail: 'Create, search, rename, and delete chat sessions',
+  },
+  {
+    text: 'Token Analytics',
+    detail: 'Usage dashboard with model comparison and cost tracking',
+  },
 ];
 
 // ── Quick Actions ───────────────────────────────
@@ -274,7 +282,7 @@ export function DashboardView() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-2xl font-bold text-foreground">
-                  CodeBot Agent v2.4
+                  CodeBot Agent v2.5
                 </h1>
                 <Badge
                   variant="outline"
@@ -685,12 +693,12 @@ export function DashboardView() {
           )}
         </motion.div>
 
-        {/* What's New in v2.4 */}
+        {/* What's New in v2.5 */}
         <motion.div variants={item} className="mb-8">
           <div className="mb-3 flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-emerald-400" />
             <h2 className="text-lg font-semibold text-foreground">
-              What's New in v2.4
+              What's New in v2.5
             </h2>
           </div>
           <Card className="border-border/50 bg-card/50">
@@ -703,6 +711,8 @@ export function DashboardView() {
                   { emoji: '⌨️', text: 'Keyboard Shortcuts — Press ? for shortcuts overlay' },
                   { emoji: '🛠️', text: 'Custom Models — Add any OpenAI-compatible API' },
                   { emoji: '🐛', text: 'UI Fixes — Scroll and layout improvements' },
+                  { emoji: '📋', text: 'Session Manager — Create, search, rename, and delete sessions' },
+                  { emoji: '📊', text: 'Token Analytics — Usage dashboard with model comparison' },
                 ].map((item, i) => (
                   <div
                     key={i}

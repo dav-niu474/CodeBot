@@ -213,3 +213,131 @@ Stage Summary:
 - Root cause fixed: non-SSE responses (HTML, plain text, malformed SSE) no longer cause JSON.parse errors with empty output
 - Rich markdown rendering: GFM tables, task lists, strikethrough, auto-linking, code blocks with copy + language label, mermaid diagrams, math placeholders, image rendering
 - No new packages installed, 0 lint errors
+
+---
+## Task ID: 1-a & 1-b
+### Agent: Session Manager + Template Library Developer
+### Work Task
+Build Session Manager sidebar panel (Task 1-a) and Template Library (Task 1-b) for v2.5.0 CodeBot ChatView.
+
+### Work Summary
+
+**Pre-existing Infrastructure Verified:**
+- Sessions API (`/api/sessions/route.ts`) already supports GET (list), POST (create), DELETE (by id)
+- Session detail API (`/api/sessions/[id]/route.ts`) already supports GET with messages
+- Zustand chat store (`src/store/chat-store.ts`) already has `sessions`, `activeSessionId`, `addSession`, `setActiveSession`, `deleteSession` — no store modifications needed
+
+**Task 1-a — Session Manager Panel** (`src/components/codebot/ChatView.tsx`):
+- Added `sessionPanelOpen` and `searchQuery` state
+- Added `sessions`, `addSession`, `setActiveSession`, `deleteSession` from chat store
+- Added **History** button (toggle) in chat header before Download button — highlights emerald when panel open
+- Added **backdrop overlay**: `fixed inset-0 z-30 bg-black/40` with Framer Motion fade animation
+- Added **session panel**: `fixed top-0 left-0 z-40 h-full w-72` with Framer Motion slide animation (`translateX: 0% ↔ -100%`)
+- Panel uses `bg-zinc-950/98 backdrop-blur-xl border-r border-border/50`
+- Panel header: "Sessions" title + "New Chat" button (Plus icon, emerald accent)
+- Search input: filters sessions by title with Search icon prefix
+- Session list: scrollable (`overflow-y-auto`), each item shows:
+  - Green dot indicator for active session (with emerald glow shadow)
+  - Session title (truncated)
+  - Relative time via `date-fns` `formatDistanceToNow`
+  - Token count
+  - Delete button (Trash2 icon, appears on hover with opacity transition)
+  - Click to switch session, auto-closes panel
+- Empty state: History icon + "No sessions yet" message + Create button (hidden when searching)
+- `handleNewChat`: creates Session object, calls `addSession`, closes panel, shows toast
+- `handleDeleteSession`: calls `deleteSession` from store, fire-and-forget DELETE to `/api/sessions`, shows toast
+- Restructured component return: removed early return for `!activeSessionId`, now uses conditional rendering inside fragment so session panel is always accessible
+
+**Task 1-b — Template Library** (integrated into session panel):
+- 12 coding prompt templates defined inline as `TEMPLATES` array with icons, labels, prompts, categories, and colors
+- Added `templateColorMap` Record for Tailwind JIT-compatible class mapping (12 colors: emerald, sky, red, amber, cyan, purple, orange, pink, teal, lime, indigo, fuchsia)
+- Templates section at bottom of session panel with separator border
+- "Quick Templates" header with LayoutTemplate icon
+- 2-column grid layout, scrollable (max-h-52 overflow-y-auto)
+- Each template button shows colored icon + label, hover background matches color
+- On click: creates session if none active, inserts prompt into textarea, closes panel, auto-focuses textarea after 300ms delay
+- Added **LayoutTemplate** button in chat header — opens session panel and auto-scrolls to templates section via `data-templates-section` attribute
+
+**New Imports Added:**
+- `lucide-react`: History, Plus, Trash2, LayoutTemplate, Search, GitPullRequest, BookOpen, Bug, RefreshCw, FlaskConical, Database, Table, Hash, Layers, ArrowLeftRight (12 icons)
+- `type LucideIcon` from lucide-react
+- `useMemo` from react
+- `motion` from framer-motion (alongside existing AnimatePresence)
+- `formatDistanceToNow` from date-fns
+- `Session` type from @/lib/types
+
+**Design Consistency:**
+- Dark theme with emerald accents, zinc backgrounds
+- Panel styling matches existing design language (backdrop-blur-xl, border-border/50, bg-zinc-950/98)
+- All scrollable areas use native `overflow-y-auto` (not shadcn ScrollArea)
+- Framer Motion for panel slide + backdrop animations
+- Consistent button sizing (h-8 w-8) and ghost variants
+- Emerald glow effects on active indicators
+
+**Verification:**
+- ESLint: 0 errors, 0 warnings
+- No new packages installed
+- All pre-existing TypeScript strict errors remain unchanged (pre-existing across 13 files, not introduced by this change)
+
+---
+Task ID: 1-e
+Agent: Main Orchestrator
+Task: Mobile Responsive Overhaul + UI Polish (v2.5.0)
+
+Work Log:
+- Read worklog.md and all view files to understand current state
+- Added mobile bottom navigation bar to page.tsx with 5 nav items (Home, Chat, Models, Tools, More)
+- Added `pb-14 md:pb-0` padding to main content area to accommodate bottom nav
+- Updated DashboardView.tsx: version bump v2.4→v2.5, 2 new capabilities (Session Manager, Token Analytics), 2 new changelog items
+- ChatView.tsx: hid Thinking badge, Mode badge, and Token count badge on mobile with `hidden sm:inline-flex`
+- ChatView.tsx: model name shows icon only on mobile with `hidden sm:inline`
+- MessageBubble.tsx: changed max-w from fixed 80% to responsive `max-w-[90%] sm:max-w-[80%]`
+- ModelHubView.tsx: changed grid breakpoints from `md:grid-cols-2 xl:grid-cols-3` to `sm:grid-cols-2 lg:grid-cols-3` for all 3 grid instances
+- SkillsView.tsx: changed category tabs from `flex-wrap` to `flex-nowrap overflow-x-auto` for horizontal scrolling on mobile
+- GitView.tsx: added `overflow-x-auto` to tab container for horizontal scrolling on mobile
+- globals.css: appended smooth scrolling, safe-area-inset-bottom, user-select:none on buttons, overflow-y:scroll on html
+- Verified: ToolsView already has `sm:grid-cols-2 lg:grid-cols-3`, SecurityView already has `grid-cols-2 sm:grid-cols-5` and `overflow-x-auto` table wrappers
+- Verified: ModesView already has `sm:grid-cols-2` grid
+- Ran lint: 0 errors
+- Dev server compiling and serving successfully (200 responses)
+
+Stage Summary:
+- 8 files modified: page.tsx, DashboardView.tsx, ChatView.tsx, MessageBubble.tsx, ModelHubView.tsx, SkillsView.tsx, GitView.tsx, globals.css
+- Mobile bottom nav: fixed position, 5 items with emerald active state, backdrop blur, safe-area support
+- Responsive grids: all card grids now properly adapt from 1→2→3 columns
+- Chat header: clutter-free on mobile with only essential badges visible
+- Message bubbles: wider on mobile (90%) for better readability
+- Scrollable tabs: Skills and Git views now horizontally scroll on mobile
+- UI polish CSS: smooth scroll, safe-area insets, no-select buttons, consistent scrollbar
+- No new packages installed, 0 lint errors
+
+---
+## Task ID: 1-d
+### Work Task
+Build Token Analytics View — comprehensive token usage analytics dashboard showing spending, usage patterns, and model comparison.
+
+### Work Summary
+- Read worklog.md, types.ts, Sidebar.tsx, page.tsx, GitView.tsx (reference pattern), prisma/schema.prisma (TokenUsage model) to understand project architecture
+- **Created `src/app/api/analytics/route.ts`** — GET endpoint returning token usage analytics:
+  - Uses `import { PrismaClient } from '@prisma/client'` directly (fresh instance, not `@/lib/db`)
+  - `db.$queryRaw` for model breakdown: GROUP BY model_id, SUM tokens, COUNT DISTINCT sessions
+  - `db.$queryRaw` for daily usage: last 7 days via `WHERE createdAt >= date('now', '-7 days')`, GROUP BY `date(createdAt)`
+  - `db.$queryRaw` for recent usage: ORDER BY createdAt DESC LIMIT 20
+  - `db.aggregate` for totals: SUM inputTokens, outputTokens, cost, COUNT id
+  - Returns: totalTokens, totalInputTokens, totalOutputTokens, totalCost, sessionCount, modelBreakdown (with percentage), dailyUsage, recentUsage
+- **Created `src/components/codebot/AnalyticsView.tsx`** (~380 lines) — Full analytics dashboard:
+  - Header: BarChart3 icon + "Token Analytics" title + badge showing total tokens + refresh button
+  - Stats Row (4 cards, grid-cols-2 sm:grid-cols-4): Total Tokens (emerald), Total Cost (amber), Active Sessions (sky), Models Used (purple)
+  - Input/Output Split: Two cards with progress bars showing input vs output token ratios
+  - Model Comparison: Horizontal bar chart with animated bars (Framer Motion), emerald for meta models, amber for others, model name left, bar center, count + percentage right, sub-detail row with in/out/session counts
+  - Daily Usage Chart: 7-day bar chart with animated bars, date labels, values on top, "tokens" Y-axis label, total summary
+  - Recent Usage Table: Native overflow-y-auto max-h-64, sticky header, columns (Time, Model, Tokens, Cost), alternating row backgrounds, relative time via date-fns formatDistanceToNow
+  - Cost Estimate Card: Disclaimer banner, pricing table with 5 NVIDIA models (input/output rates), estimated cost calculated from actual usage data per model
+  - Loading state with spinner, error state with retry button
+  - Uses container/item animation variants with staggerChildren 0.06
+- **Updated `src/lib/types.ts`** — Added `'analytics'` to ActiveView union type (between model-hub and git)
+- **Updated `src/components/codebot/Sidebar.tsx`** — Added Analytics nav item with BarChart3 icon (between AI Caps and Git)
+- **Updated `src/app/page.tsx`** — Added AnalyticsView import and `case 'analytics': return <AnalyticsView />;` in ViewContent switch
+- Ran lint: 0 errors
+- Design matches existing views: dark theme, emerald accents, zinc backgrounds, border-border/50 bg-card/50 cards
+- No new packages installed

@@ -976,7 +976,7 @@ export function ModelHubView() {
       <div className="flex-1 overflow-y-auto px-6 py-6">
         <div className="mx-auto max-w-6xl">
           {isLoading ? (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {Array.from({ length: 6 }).map((_, i) => (
                 <ModelCardSkeleton key={i} />
               ))}
@@ -993,7 +993,7 @@ export function ModelHubView() {
                       {filteredCustomModels.length}
                     </Badge>
                   </div>
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     {filteredCustomModels.map((cm) => (
                       <CustomModelCard
                         key={cm.id}
@@ -1050,7 +1050,7 @@ export function ModelHubView() {
                       key={activeTab + searchQuery}
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3"
+                      className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
                     >
                       {filteredModels.map((model) => (
                         <ModelCard

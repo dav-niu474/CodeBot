@@ -237,7 +237,7 @@ export function SkillsView() {
             transition={{ duration: 0.3, delay: 0.15 }}
             className="mb-6"
           >
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-nowrap gap-2 overflow-x-auto pb-1">
               {/* All tab */}
               <button
                 onClick={() => setActiveCategory('all')}
