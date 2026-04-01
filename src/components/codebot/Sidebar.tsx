@@ -356,13 +356,13 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           </span>
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] font-medium text-muted-foreground">
-              v2.0
+              v2.2
             </span>
             <Badge
               variant="secondary"
               className="h-3.5 px-1 text-[8px] text-emerald-400"
             >
-              PRO
+              161 Models
             </Badge>
           </div>
         </div>

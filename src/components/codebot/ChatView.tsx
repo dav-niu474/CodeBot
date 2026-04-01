@@ -175,7 +175,7 @@ export function ChatView() {
         setLoading(false);
       }
     },
-    [activeSessionId, addMessage, updateMessage, setLoading, setStreamingMessageId, agentConfig.thinkingEnabled]
+    [activeSessionId, addMessage, updateMessage, setLoading, setStreamingMessageId, selectedModel, agentConfig]
   );
 
   const sendImageToAPI = useCallback(

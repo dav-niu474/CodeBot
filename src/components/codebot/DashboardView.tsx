@@ -110,7 +110,7 @@ const COMPLETE_CAPABILITIES: CapabilityItem[] = [
   },
   {
     text: 'NVIDIA Multi-Model Support',
-    detail: '188 free models available',
+    detail: '161 models across 6 categories',
   },
 ];
 
@@ -262,7 +262,7 @@ export function DashboardView() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-2xl font-bold text-foreground">
-                  CodeBot Agent v2.0
+                  CodeBot Agent v2.2
                 </h1>
                 <Badge
                   variant="outline"
