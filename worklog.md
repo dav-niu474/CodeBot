@@ -24,3 +24,22 @@ Stage Summary:
 - 数据库: 9个Prisma模型
 - 代码量: 11601行(TypeScript/TSX)
 - 188个NVIDIA免费模型可用, 8个推荐模型已验证
+
+---
+Task ID: 2
+Agent: Main Orchestrator
+Task: Fix UI bugs - Skills scroll, Memory/Agents/Security overlapping content
+
+Work Log:
+- Diagnosed SkillsView: already uses native overflow-y-auto, scroll working correctly
+- Fixed MemoryView: Critical JSX mismatch - line 502 opened div but line 532 closed ScrollArea, ScrollArea used in 4 tabs but not imported. Replaced all 4 ScrollArea instances with native div overflow-y-auto. Fixed variable name collision in team-sync tab. Removed unused Skeleton import.
+- Fixed AgentsView: Replaced 2 ScrollArea instances (agent cards + message log) with native overflow-y-auto divs. Removed ScrollArea import.
+- Fixed SecurityView: Replaced 2 ScrollArea instances (rules table + audit log) with native overflow-y-auto divs. Removed ScrollArea import.
+- Ran lint: 0 errors
+- Verified compilation: page returns HTTP 200
+
+Stage Summary:
+- Pattern: shadcn/ui ScrollArea fails in flex layouts, native overflow-y-auto is the fix
+- MemoryView had 5 bugs (JSX mismatch + 4 ScrollArea without import)
+- All 4 view files now use native scrolling
+- ESLint clean, dev server compiling successfully

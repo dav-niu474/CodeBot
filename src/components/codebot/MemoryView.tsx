@@ -22,9 +22,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ScrollArea } from '@/components/ui/scroll-area';
+// ScrollArea removed — using native overflow-y-auto
 import { Separator } from '@/components/ui/separator';
-import { Skeleton } from '@/components/ui/skeleton';
+
 import {
   Brain,
   Database,
@@ -499,7 +499,7 @@ export function MemoryView() {
                   </p>
                 </CardHeader>
                 <CardContent>
-                  <ScrollArea className="max-h-96">
+                  <div className="max-h-96 overflow-y-auto">
                     <AnimatePresence mode="popLayout">
                       <motion.div variants={container} initial="hidden" animate="show" className="space-y-2">
                         {MOCK_SESSION_MEMORIES.map((mem) => {
@@ -529,7 +529,7 @@ export function MemoryView() {
                         })}
                       </motion.div>
                     </AnimatePresence>
-                  </ScrollArea>
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>
@@ -547,7 +547,7 @@ export function MemoryView() {
                   </p>
                 </CardHeader>
                 <CardContent>
-                  <ScrollArea className="max-h-96">
+                  <div className="max-h-96 overflow-y-auto">
                     <AnimatePresence mode="popLayout">
                       <motion.div variants={container} initial="hidden" animate="show" className="space-y-2">
                         {MOCK_MEMDIR_ITEMS.map((mem) => {
@@ -588,7 +588,7 @@ export function MemoryView() {
                         })}
                       </motion.div>
                     </AnimatePresence>
-                  </ScrollArea>
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>
@@ -606,7 +606,7 @@ export function MemoryView() {
                   </p>
                 </CardHeader>
                 <CardContent>
-                  <ScrollArea className="max-h-96">
+                  <div className="max-h-96 overflow-y-auto">
                     <AnimatePresence mode="popLayout">
                       <motion.div variants={container} initial="hidden" animate="show" className="space-y-2">
                         {MOCK_MAGIC_DOCS.map((doc) => (
@@ -649,7 +649,7 @@ export function MemoryView() {
                         ))}
                       </motion.div>
                     </AnimatePresence>
-                  </ScrollArea>
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>
@@ -667,14 +667,14 @@ export function MemoryView() {
                   </p>
                 </CardHeader>
                 <CardContent>
-                  <ScrollArea className="max-h-96">
+                  <div className="max-h-96 overflow-y-auto">
                     <AnimatePresence mode="popLayout">
                       <motion.div variants={container} initial="hidden" animate="show" className="space-y-2">
-                        {MOCK_TEAM_SYNC.map((item) => (
-                          <motion.div key={item.id} variants={item} layout>
+                        {MOCK_TEAM_SYNC.map((teamItem) => (
+                          <motion.div key={teamItem.id} variants={item} layout>
                             <div className="rounded-lg border border-border/50 bg-card/50 p-3 transition-colors hover:bg-card/80">
                               <div className="flex items-start justify-between gap-2 mb-1.5">
-                                <p className="text-xs text-foreground leading-relaxed flex-1">{item.fact}</p>
+                                <p className="text-xs text-foreground leading-relaxed flex-1">{teamItem.fact}</p>
                                 <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground/40 hover:text-red-400 shrink-0">
                                   <Trash2 className="h-3 w-3" />
                                 </Button>
@@ -682,25 +682,25 @@ export function MemoryView() {
                               <div className="flex items-center gap-2 flex-wrap">
                                 <div className="flex items-center gap-1">
                                   <Users className="h-2.5 w-2.5 text-muted-foreground/50" />
-                                  <span className="text-[10px] text-muted-foreground">{item.agents.join(', ')}</span>
+                                  <span className="text-[10px] text-muted-foreground">{teamItem.agents.join(', ')}</span>
                                 </div>
                                 <Badge
                                   variant="outline"
                                   className={`h-5 px-1.5 text-[9px] ${
-                                    item.status === 'shared'
+                                    teamItem.status === 'shared'
                                       ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
-                                      : item.status === 'conflict'
+                                      : teamItem.status === 'conflict'
                                         ? 'border-red-500/20 bg-red-500/10 text-red-400'
                                         : 'border-amber-500/20 bg-amber-500/10 text-amber-400'
                                   }`}
                                 >
-                                  {item.status === 'shared' && <CheckCircle className="mr-0.5 h-2 w-2" />}
-                                  {item.status === 'conflict' && <AlertCircle className="mr-0.5 h-2 w-2" />}
-                                  {item.status}
+                                  {teamItem.status === 'shared' && <CheckCircle className="mr-0.5 h-2 w-2" />}
+                                  {teamItem.status === 'conflict' && <AlertCircle className="mr-0.5 h-2 w-2" />}
+                                  {teamItem.status}
                                 </Badge>
                                 <span className="text-[10px] text-muted-foreground/60 flex items-center gap-1 ml-auto">
                                   <Clock className="h-2.5 w-2.5" />
-                                  {formatDate(item.updatedAt)}
+                                  {formatDate(teamItem.updatedAt)}
                                 </span>
                               </div>
                             </div>
@@ -708,7 +708,7 @@ export function MemoryView() {
                         ))}
                       </motion.div>
                     </AnimatePresence>
-                  </ScrollArea>
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>

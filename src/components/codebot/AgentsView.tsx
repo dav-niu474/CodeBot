@@ -23,7 +23,7 @@ import {
   DialogTrigger,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { ScrollArea } from '@/components/ui/scroll-area';
+
 import {
   Select,
   SelectContent,
@@ -675,8 +675,8 @@ export function AgentsView() {
           </Card>
 
           {/* Agent Cards */}
-          <ScrollArea className="max-h-96">
-            <div className="space-y-2 pr-2">
+          <div className="max-h-96 overflow-y-auto pr-1">
+            <div className="space-y-2">
               {sessions.map((session) => {
                 const sc = statusColorMap[session.status];
                 const rs = roleStyles[session.role];
@@ -784,7 +784,7 @@ export function AgentsView() {
                 );
               })}
             </div>
-          </ScrollArea>
+          </div>
         </motion.div>
 
         {/* Message Log */}
@@ -800,7 +800,7 @@ export function AgentsView() {
           </div>
 
           <Card className="border-border/50 bg-card/50">
-            <ScrollArea className="max-h-80">
+            <div className="max-h-80 overflow-y-auto">
               <div className="space-y-1 p-3">
                 {messages.map((msg, i) => {
                   const from = getAgentName(msg.fromAgentId);
@@ -847,7 +847,7 @@ export function AgentsView() {
                   );
                 })}
               </div>
-            </ScrollArea>
+            </div>
           </Card>
         </motion.div>
 

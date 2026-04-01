@@ -16,7 +16,7 @@ import {
   DialogTrigger,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { ScrollArea } from '@/components/ui/scroll-area';
+
 import {
   Select,
   SelectContent,
@@ -728,7 +728,7 @@ export function SecurityView() {
           </div>
 
           <Card className="border-border/50 bg-card/50">
-            <ScrollArea className="max-h-72">
+            <div className="max-h-72 overflow-y-auto">
               <div className="min-w-[600px]">
                 {/* Table Header */}
                 <div className="flex items-center gap-3 border-b border-border/50 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -768,7 +768,7 @@ export function SecurityView() {
                   );
                 })}
               </div>
-            </ScrollArea>
+            </div>
           </Card>
         </motion.div>
 
@@ -783,7 +783,7 @@ export function SecurityView() {
           </div>
 
           <Card className="border-border/50 bg-card/50">
-            <ScrollArea className="max-h-96">
+            <div className="max-h-96 overflow-y-auto">
               <div className="min-w-[600px]">
                 {/* Table Header */}
                 <div className="flex items-center gap-3 border-b border-border/50 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -839,7 +839,7 @@ export function SecurityView() {
                   );
                 })}
               </div>
-            </ScrollArea>
+            </div>
           </Card>
         </motion.div>
 

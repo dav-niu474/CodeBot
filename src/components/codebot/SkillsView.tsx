@@ -7,7 +7,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Tooltip,
   TooltipContent,
@@ -151,7 +150,7 @@ export function SkillsView() {
       animate="show"
       className="flex h-full flex-col overflow-hidden"
     >
-      <ScrollArea className="flex-1">
+      <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
           {/* ── Header ─────────────────────────── */}
           <motion.div
@@ -422,7 +421,7 @@ export function SkillsView() {
           {/* Bottom spacer */}
           <div className="h-8" />
         </div>
-      </ScrollArea>
+      </div>
     </motion.div>
   );
 }
