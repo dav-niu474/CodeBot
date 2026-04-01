@@ -1,9 +1,54 @@
 import { create } from "zustand";
-import type { Session, Message, ActiveView, ToolDef, SkillDef, AgentConfig, AICapability } from "@/lib/types";
-import { DEFAULT_TOOLS, DEFAULT_SKILLS, DEFAULT_AI_CAPABILITIES } from "@/lib/types";
+import type {
+  Session,
+  Message,
+  ActiveView,
+  ToolDef,
+  SkillDef,
+  AgentConfig,
+  AICapability,
+  RunningMode,
+  NvidiaModel,
+  FeatureFlag,
+  AgentSession,
+  MagicDocEntry,
+} from "@/lib/types";
+import {
+  DEFAULT_TOOLS,
+  DEFAULT_SKILLS,
+  DEFAULT_AI_CAPABILITIES,
+} from "@/lib/types";
+
+// ────────────────────────────────────────────
+// Type alias for store usage
+// ────────────────────────────────────────────
+type NvidiaModelInfo = NvidiaModel;
+type Memory = MagicDocEntry;
+
+// ────────────────────────────────────────────
+// Default Feature Flags
+// ────────────────────────────────────────────
+const defaultFeatureFlags: Record<FeatureFlag, boolean> = {
+  KAIROS: true,
+  PROACTIVE: true,
+  VOICE: true,
+  COORDINATOR: true,
+  SWARM: true,
+  BRIDGE: true,
+  DREAM: true,
+  MAGIC_DOCS: true,
+  TEAM_SYNC: true,
+  ULTRAPLAN: true,
+  MCP: true,
+  LSP: true,
+  POWER_SHELL: false,
+  REPL: false,
+  SLEEP: false,
+  CRON: true,
+};
 
 interface ChatStore {
-  // State
+  // ── Existing State ──────────────────────────
   activeSessionId: string | null;
   sessions: Session[];
   messages: Message[];
@@ -16,45 +61,62 @@ interface ChatStore {
   aiCapabilities: AICapability[];
   streamingMessageId: string | null;
 
-  // Session actions
+  // ── New State ───────────────────────────────
+  activeMode: RunningMode;
+  models: NvidiaModelInfo[];
+  selectedModel: string;
+  featureFlags: Record<FeatureFlag, boolean>;
+  memories: Memory[];
+  agentSessions: AgentSession[];
+
+  // ── Session actions ────────────────────────
   setActiveSession: (id: string | null) => void;
   setSessions: (sessions: Session[]) => void;
   addSession: (session: Session) => void;
   updateSession: (id: string, updates: Partial<Session>) => void;
   deleteSession: (id: string) => void;
 
-  // Message actions
+  // ── Message actions ────────────────────────
   setMessages: (messages: Message[]) => void;
   addMessage: (message: Message) => void;
   updateMessage: (id: string, updates: Partial<Message>) => void;
   clearMessages: () => void;
 
-  // Loading
+  // ── Loading ────────────────────────────────
   setLoading: (loading: boolean) => void;
 
-  // View
+  // ── View ───────────────────────────────────
   setActiveView: (view: ActiveView) => void;
 
-  // Tools
+  // ── Tools ──────────────────────────────────
   setTools: (tools: ToolDef[]) => void;
   toggleTool: (id: string) => void;
 
-  // Skills
+  // ── Skills ─────────────────────────────────
   setSkills: (skills: SkillDef[]) => void;
   toggleSkill: (id: string) => void;
 
-  // Agent Config
+  // ── Agent Config ───────────────────────────
   setAgentConfig: (config: Partial<AgentConfig>) => void;
 
-  // Sidebar
+  // ── Sidebar ────────────────────────────────
   setSidebarOpen: (open: boolean) => void;
 
-  // AI Capabilities
+  // ── AI Capabilities ────────────────────────
   setAICapabilities: (caps: AICapability[]) => void;
   toggleAICapability: (id: string) => void;
 
-  // Streaming
+  // ── Streaming ──────────────────────────────
   setStreamingMessageId: (id: string | null) => void;
+
+  // ── New Actions ────────────────────────────
+  setActiveMode: (mode: RunningMode) => void;
+  setModels: (models: NvidiaModelInfo[]) => void;
+  setSelectedModel: (modelId: string) => void;
+  toggleFeatureFlag: (flag: FeatureFlag) => void;
+  setMemories: (memories: Memory[]) => void;
+  addMemory: (memory: Memory) => void;
+  setAgentSessions: (sessions: AgentSession[]) => void;
 }
 
 const defaultAgentConfig: AgentConfig = {
@@ -76,7 +138,7 @@ const defaultAgentConfig: AgentConfig = {
 };
 
 export const useChatStore = create<ChatStore>((set, get) => ({
-  // Initial state
+  // ── Initial State ──────────────────────────
   activeSessionId: null,
   sessions: [],
   messages: [],
@@ -99,7 +161,15 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   aiCapabilities: [...DEFAULT_AI_CAPABILITIES],
   streamingMessageId: null,
 
-  // Session actions
+  // ── New State Defaults ─────────────────────
+  activeMode: "interactive" as RunningMode,
+  models: [] as NvidiaModelInfo[],
+  selectedModel: "meta/llama-3.3-70b-instruct",
+  featureFlags: { ...defaultFeatureFlags },
+  memories: [] as Memory[],
+  agentSessions: [] as AgentSession[],
+
+  // ── Session actions ────────────────────────
   setActiveSession: (id) =>
     set({
       activeSessionId: id,
@@ -133,7 +203,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       activeView: state.activeSessionId === id ? "dashboard" : state.activeView,
     })),
 
-  // Message actions
+  // ── Message actions ────────────────────────
   setMessages: (messages) => set({ messages }),
 
   addMessage: (message) =>
@@ -148,13 +218,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   clearMessages: () => set({ messages: [] }),
 
-  // Loading
+  // ── Loading ────────────────────────────────
   setLoading: (loading) => set({ isLoading: loading }),
 
-  // View
+  // ── View ───────────────────────────────────
   setActiveView: (view) => set({ activeView: view }),
 
-  // Tools
+  // ── Tools ──────────────────────────────────
   setTools: (tools) => set({ tools }),
   toggleTool: (id) =>
     set((state) => ({
@@ -163,7 +233,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       ),
     })),
 
-  // Skills
+  // ── Skills ─────────────────────────────────
   setSkills: (skills) => set({ skills }),
   toggleSkill: (id) =>
     set((state) => ({
@@ -172,16 +242,20 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       ),
     })),
 
-  // Agent Config
+  // ── Agent Config ───────────────────────────
   setAgentConfig: (config) =>
     set((state) => ({
-      agentConfig: { ...state.agentConfig, ...config, updatedAt: new Date().toISOString() },
+      agentConfig: {
+        ...state.agentConfig,
+        ...config,
+        updatedAt: new Date().toISOString(),
+      },
     })),
 
-  // Sidebar
+  // ── Sidebar ────────────────────────────────
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
 
-  // AI Capabilities
+  // ── AI Capabilities ────────────────────────
   setAICapabilities: (caps) => set({ aiCapabilities: caps }),
   toggleAICapability: (id) =>
     set((state) => ({
@@ -190,6 +264,30 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       ),
     })),
 
-  // Streaming
+  // ── Streaming ──────────────────────────────
   setStreamingMessageId: (id) => set({ streamingMessageId: id }),
+
+  // ── New Actions ────────────────────────────
+  setActiveMode: (mode) => set({ activeMode: mode }),
+
+  setModels: (models) => set({ models: models as NvidiaModelInfo[] }),
+
+  setSelectedModel: (modelId) => set({ selectedModel: modelId }),
+
+  toggleFeatureFlag: (flag) =>
+    set((state) => ({
+      featureFlags: {
+        ...state.featureFlags,
+        [flag]: !state.featureFlags[flag],
+      },
+    })),
+
+  setMemories: (memories) => set({ memories: memories as Memory[] }),
+
+  addMemory: (memory) =>
+    set((state) => ({
+      memories: [...state.memories, memory as Memory],
+    })),
+
+  setAgentSessions: (sessions) => set({ agentSessions: sessions }),
 }));

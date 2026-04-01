@@ -7,70 +7,175 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============ 会话管理 ============
 model Session {
   id          String    @id @default(cuid())
   title       String    @default("New Session")
-  model       String    @default("default")
+  model       String    @default("meta/llama-3.3-70b-instruct")
   systemPrompt String?
   isActive    Boolean   @default(true)
   tokenCount  Int       @default(0)
+  mode        String    @default("interactive") // interactive, kairos, plan, worktree, voice, coordinator, swarm, teammate, ultraplan, dream
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   messages    Message[]
+
+  // Agent关联
+  agentId     String?
+  agent       AgentSession? @relation(fields: [agentId], references: [id])
 }
 
 model Message {
-  id        String   @id @default(cuid())
-  sessionId String
-  role      String   // "user", "assistant", "system", "tool"
-  content   String
-  toolCalls String?  // JSON string of tool calls
-  toolResults String? // JSON string of tool results
-  tokens    Int      @default(0)
-  createdAt DateTime @default(now())
-  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-}
-
-model ToolDef {
   id          String   @id @default(cuid())
-  name        String   @unique
-  description String
-  icon        String   @default("Wrench")
-  category    String   @default("general")
-  isEnabled   Boolean  @default(true)
-  isReadOnly  Boolean  @default(false)
-  config      String?  // JSON config
+  sessionId   String
+  role        String   // "user", "assistant", "system", "tool"
+  content     String
+  toolCalls   String?  // JSON string of tool calls
+  toolResults String?  // JSON string of tool results
+  tokens      Int      @default(0)
   createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  // 思考链
+  thinkingContent String? // AI思考过程
+  modelId      String?    // 使用的模型ID
+  toolCost     Float?     // 工具调用成本
 }
 
+// ============ 多Agent系统 ============
+model AgentSession {
+  id           String   @id @default(cuid())
+  name         String
+  role         String   @default("worker") // leader, worker, scout
+  status       String   @default("idle")   // idle, running, completed, failed
+  parentId     String?
+  task         String?  // Agent task description
+  sessions     Session[]
+  config       String?  // JSON配置
+  result       String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// ============ 工具系统 (44工具) ============
+model ToolDef {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  displayName   String
+  description   String
+  icon          String   @default("Wrench")
+  category      String   @default("general") // core, file-ops, search, web, generation, task, team, plan, system, remote, lazy
+  loadStrategy  String   @default("core")     // core(始终加载), lazy(ToolSearch触发), flag(特性标志门控)
+  isEnabled     Boolean  @default(true)
+  isReadOnly    Boolean  @default(false)
+  riskLevel     String   @default("low")      // low, medium, high, critical
+  config        String?  // JSON schema
+  config2       String?  // 备用配置
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ============ 技能系统 ============
 model SkillDef {
   id          String   @id @default(cuid())
   name        String   @unique
+  displayName String
   description String
   icon        String   @default("Sparkles")
   category    String   @default("general")
   isEnabled   Boolean  @default(true)
-  prompt      String?  // Skill system prompt
-  config      String?  // JSON config
+  prompt      String?  // Skill系统提示
+  config      String?  // JSON配置
+  config2     String?  // 备用配置
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
 
+// ============ 四层记忆系统 ============
+model Memory {
+  id          String   @id @default(cuid())
+  sessionId   String?
+  layer       String   // session, memdir, magic_doc, team
+  category    String?  // preference, pattern, decision, error, context, knowledge
+  content     String
+  filePath    String?  // 关联文件路径
+  tags        String?  // JSON tags
+  importance  Int      @default(5)  // 1-10重要性
+  accessCount Int      @default(0)
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============ 运行模式 ============
+model RunMode {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  displayName String
+  description String
+  icon        String   @default("Zap")
+  category    String   @default("interactive")
+  isEnabled   Boolean  @default(true)
+  config      String?  // JSON配置
+  featureFlags String? // 关联的特性标志
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============ 特性标志系统 ============
+model FeatureFlag {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String
+  isEnabled   Boolean  @default(true)
+  category    String   // core, experimental, internal, beta
+  config      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============ Agent配置 ============
 model AgentConfig {
-  id             String   @id @default(cuid())
-  agentName      String   @default("CodeBot")
-  avatar         String   @default("🤖")
-  personality    String   @default("helpful")
-  maxTokens      Int      @default(4096)
-  temperature    Float    @default(0.7)
-  autoCompact    Boolean  @default(true)
-  compactThreshold Int    @default(100000)
-  toolConcurrency Int     @default(5)
-  theme          String   @default("dark")
-  language       String   @default("zh-CN")
-  thinkingEnabled Boolean @default(false)
-  activeModel     String  @default("default")
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id               String   @id @default(cuid())
+  agentName        String   @default("CodeBot")
+  avatar           String   @default("🤖")
+  personality      String   @default("helpful")
+  maxTokens        Int      @default(8192)
+  temperature      Float    @default(0.7)
+  autoCompact      Boolean  @default(true)
+  compactThreshold Int      @default(13000)
+  toolConcurrency  Int      @default(5)
+  theme            String   @default("dark")
+  language         String   @default("zh-CN")
+  thinkingEnabled  Boolean  @default(false)
+  activeModel      String   @default("meta/llama-3.3-70b-instruct")
+  activeMode       String   @default("interactive")
+  nvidiaApiKey     String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+// ============ 安全审计 ============
+model SecurityLog {
+  id          String   @id @default(cuid())
+  sessionId   String?
+  toolName    String
+  action      String   // allow, deny, ask
+  riskLevel   String   @default("low")
+  reason      String?
+  command     String?  // 实际执行的命令
+  createdAt   DateTime @default(now())
+}
+
+// ============ Token使用追踪 ============
+model TokenUsage {
+  id          String   @id @default(cuid())
+  sessionId   String?
+  modelId     String
+  inputTokens Int      @default(0)
+  outputTokens Int     @default(0)
+  cacheHitTokens Int   @default(0)
+  cost        Float    @default(0)
+  compressed  Boolean  @default(false)
+  createdAt   DateTime @default(now())
 }

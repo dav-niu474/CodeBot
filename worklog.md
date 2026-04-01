@@ -203,3 +203,161 @@ Stage Summary:
 - Frontend fully enhanced: AI Capabilities view, image upload, thinking mode, streaming display
 - Settings and Dashboard updated with AI capability management
 - Complete AI integration with LLM, VLM, and Web Search capabilities
+
+---
+## Task ID: 2-a - frontend-store-sidebar-modelhub-agent
+### Work Task
+Update Zustand store with new state/actions, rewrite sidebar with comprehensive navigation, create Model Hub view component.
+
+### Work Summary
+Updated 3 files and created 1 new file:
+
+**1. `/src/store/chat-store.ts` (Updated)**
+Added 6 new state fields and 7 new actions while preserving ALL existing state and actions:
+- `activeMode: RunningMode` (default "interactive")
+- `models: NvidiaModel[]` (default empty, fetched from API)
+- `selectedModel: string` (default "meta/llama-3.3-70b-instruct")
+- `featureFlags: Record<FeatureFlag, boolean>` (13 enabled, 3 disabled by default)
+- `memories: MagicDocEntry[]` (default empty)
+- `agentSessions: AgentSession[]` (default empty)
+- Actions: `setActiveMode`, `setModels`, `setSelectedModel`, `toggleFeatureFlag`, `setMemories`, `addMemory`, `setAgentSessions`
+- Uses type aliases `NvidiaModelInfo = NvidiaModel` and `Memory = MagicDocEntry` from @/lib/types
+
+**2. `/src/components/codebot/Sidebar.tsx` (Rewritten)**
+Complete rewrite with comprehensive sidebar featuring:
+- Logo/Header: "CodeBot Agent" with Bot icon, "v2.0" version badge, "PRO" badge
+- New Chat Button: Prominent emerald bg button at top
+- Main Navigation: 11 nav items (Dashboard, Chat, Model Hub, Tools, Skills, Modes, Memory, Agents, Security, AI Caps, Settings) with active emerald highlight + left border, staggered framer-motion animations, badges for Chat (active session count), Tools (enabled count), Agents (session count)
+- Active Mode Indicator: Colored pill showing current RunningMode with mode-specific icon, color, and animation (kairos=pulse, dream=Zzz)
+- Recent Sessions: Last 5 sessions with title, date, delete button
+- Model Indicator: Bottom bar showing selected NVIDIA model name with free badge
+- Exports: `DesktopSidebar` (hidden lg:flex, w-64), `MobileSidebar` (Sheet), `MobileSidebarTrigger`, `Sidebar` (null)
+- Dark theme (bg-zinc-950) with emerald accents throughout
+
+**3. `/src/components/codebot/ModelHubView.tsx` (New)**
+Comprehensive NVIDIA model browser:
+- Header with Cpu icon, search input, category filter tabs (All | Chat | Code | Reasoning | Vision | Large)
+- Model cards in responsive grid (1/2/3 cols) showing: provider logo circle, model name, category badge, free badge, vision icon, context length, Select button (emerald when selected), Test button
+- Currently Selected panel at bottom with full model details
+- Test dialog with message input, send button, loading spinner, response display
+- Fetches models from `/api/models` (GET) with fallback to DEFAULT_NVIDIA_MODELS
+- Tests models via `/api/models/test` (POST)
+- Loading skeletons, empty state, AnimatePresence transitions
+- Provider color map (nvidia=green, meta=blue, etc.), category color badges
+
+**4. `/src/app/page.tsx` (Updated)**
+- Added `ModelHubView` import
+- Added `case 'model-hub': return <ModelHubView />`
+- Added fallback cases for modes, memory, agents, security views
+
+**Lint Result:** 0 errors. Dev server returning GET / 200 consistently.
+
+---
+## Task ID: 2-b - frontend-views-agent
+### Work Task
+Create 3 comprehensive view components: ToolsView (44-tool system rewrite), ModesView (10 running modes), MemoryView (4-layer memory system).
+
+### Work Summary
+Rewrote 1 file and created 2 new view components, then updated page.tsx to wire them into routing:
+
+**1. `/src/components/codebot/ToolsView.tsx` (Complete Rewrite)**
+- Imports ALL_CLAUDE_TOOLS (44 tools) from @/lib/types instead of using store's DEFAULT_TOOLS
+- Local state management with useState for tool enable/disable toggling
+- Header: "Tool System" title + "44 Tools" badge + search input (filters by name, displayName, description)
+- Stats bar: Total tools, Core (14), Lazy (25), Flag-gated (5), Enabled count — updates in real-time
+- Filter tabs: All | Core | Lazy | Flag-gated with counts + category dropdown (Select component)
+- Tool cards in responsive 3-column grid:
+  - Category-colored icon, displayName, monospace name, truncated description (line-clamp-2)
+  - Category badge, Load Strategy badge (Core=emerald, Lazy=amber, Flag=purple)
+  - Risk level indicator as colored dot (low=green, medium=yellow, high=red, critical=red+animate-pulse)
+  - Lock icon for read-only tools
+  - Switch toggle for enable/disable
+- Tool Search info section explaining dynamic loading
+- Empty state when no tools match filters
+- Enable All / Disable All buttons
+- All 44 lucide icons mapped (with fallbacks for unavailable icons)
+- Framer-motion staggered animations, hover effects, tooltips
+
+**2. `/src/components/codebot/ModesView.tsx` (New)**
+- 10 hardcoded MODE_CONFIGS: Interactive, KAIROS, Plan, Worktree, Voice, Coordinator, Swarm, Teammate, UltraPlan, Dream
+- Each mode: icon, description, fullDescription, color theme, requiredFlags, capability flags (isConversational, isAutonomous, allowsExecution), related tools list
+- Current active mode prominently displayed at top with emerald-styled card, mode-specific color, capability badges, required flags count
+- Mode cards in 2-column grid with:
+  - Large colored icon, mode name, description (line-clamp-2)
+  - Visual indicators: MessageCircle (conversational), Zap with pulse (autonomous), Play (execution)
+  - Required feature flags as badges (green if enabled, red if disabled in store)
+  - "Activate" button (emerald primary if current, outline otherwise; disabled if flags not met)
+- Clicking a card opens details panel (AnimatePresence animated):
+  - Full description, required flags with enabled/disabled status, related tools list
+- Connected to Zustand store: reads/writes activeMode, reads featureFlags
+
+**3. `/src/components/codebot/MemoryView.tsx` (New)**
+- 4-layer tab system: Session | Memdir | Magic Docs | Team Sync
+- Colored tab indicators: Session=emerald, Memdir=sky, Magic Docs=amber, Team Sync=purple
+- Mock data for all 4 layers:
+  - Session: 5 memories with content, importance stars (1-10), category, creation date
+  - Memdir: 4 file-path memories with content, category tags, tags array
+  - Magic Docs: 3 auto-generated docs with title, content, source files, access count, tags
+  - Team Sync: 4 shared facts with agent names, status (shared/conflict/resolved)
+- "Add Memory" dialog with content, category (Select), importance (1-10 Select), tags (comma separated)
+- Memory stats bar showing total and per-layer counts
+- Search input for filtering memories
+- ImportanceStars component: visual 10-star rating display
+- Each memory card: content, category badge, tags, creation date, delete button
+- 4-Layer Architecture info section at bottom explaining each layer
+- ScrollArea for card lists with max-h-96
+- Framer-motion animations throughout
+
+**4. `/src/app/page.tsx` (Updated)**
+- Added imports for ModesView and MemoryView
+- Added `case 'modes': return <ModesView />` and `case 'memory': return <MemoryView />`
+- agents and security still fall back to DashboardView
+
+**Lint Result:** 0 errors. Dev server returning GET / 200 consistently.
+
+---
+## Task ID: 2-c - frontend-views-agent-2
+### Work Task
+Create 3 view components: AgentsView (multi-agent orchestration), SecurityView (7-layer security), and rewrite DashboardView (comprehensive dashboard). Wire all views into page.tsx routing.
+
+### Work Summary
+Created 2 new files, rewrote 1 file, and updated 1 file:
+
+**1. `/src/components/codebot/AgentsView.tsx` (New)**
+Multi-agent orchestration dashboard with:
+- Header: "Multi-Agent System" title + 3 route cards at top
+- **Three Route Cards** (horizontal on desktop, stacked on mobile):
+  - **Coordinator** (orange theme): Crown icon, Leader-Worker pattern description
+  - **Swarm** (red theme): Zap icon, Peer-to-peer pattern description
+  - **Teammate** (cyan theme): Mail icon, In-process pattern description
+  - Each route card clickable → navigates to ModesView with mode activated
+- **Agent Session List** section with 5 mock sessions, token usage bar, Create Agent dialog
+- **Message Log** section with 8 mock inter-agent messages in chat-like format
+- Status colors: idle=gray, working=green(pulse), waiting=yellow, blocked=red, completed=blue, failed=red, terminated=gray
+- Message type colors: task=blue, result=green, question=yellow, error=red, status=gray, cancel=orange
+
+**2. `/src/components/codebot/SecurityView.tsx` (New)**
+7-layer security system dashboard with:
+- Stats Row (5 cards): Total Events, Allowed, Denied, Asked, Most Blocked
+- **Security Architecture** — 7 vertical layer cards with detailed bullet points
+- **Security Rules Table**: 12 default rules with Add Rule dialog
+- **Audit Log**: 10 mock events with scrollable table
+- Permission badges: allow=green, deny=red, ask=amber with icons
+
+**3. `/src/components/codebot/DashboardView.tsx` (Complete Rewrite)**
+Comprehensive dashboard with:
+- Header: "CodeBot Agent v2.0" with Claude Code Architecture badge
+- **Hero Stats** row with animated counters (useAnimatedCounter hook with requestAnimationFrame)
+- **Architecture Overview** — Iceberg metaphor (60% visible / 40% hidden)
+- **Feature Flags** section: 16 flags as toggle badges with enabled count
+- **Complete Capabilities Checklist** (9 items in 3-column grid)
+- **Quick Actions** grid (6 buttons: New Chat, Browse Models, Manage Tools, View Memory, Agent Sessions, Security Settings)
+- **Recent Activity** list with model and token count
+- **System Status Bar**: NVIDIA API connected, Feature Flags, Memory layers, Security layers
+
+**4. `/src/app/page.tsx` (Updated)**
+- Added imports for `AgentsView` and `SecurityView`
+- `case 'agents': return <AgentsView />`
+- `case 'security': return <SecurityView />`
+
+**Lint Result:** 0 errors. Dev server returning GET / 200 consistently.

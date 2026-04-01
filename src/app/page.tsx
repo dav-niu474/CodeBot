@@ -9,6 +9,11 @@ import { ToolsView } from '@/components/codebot/ToolsView';
 import { SkillsView } from '@/components/codebot/SkillsView';
 import { SettingsView } from '@/components/codebot/SettingsView';
 import { AICapabilitiesView } from '@/components/codebot/AICapabilitiesView';
+import { ModelHubView } from '@/components/codebot/ModelHubView';
+import { ModesView } from '@/components/codebot/ModesView';
+import { MemoryView } from '@/components/codebot/MemoryView';
+import { AgentsView } from '@/components/codebot/AgentsView';
+import { SecurityView } from '@/components/codebot/SecurityView';
 import { AnimatePresence, motion } from 'framer-motion';
 
 function ViewContent({ view }: { view: ActiveView }) {
@@ -25,6 +30,16 @@ function ViewContent({ view }: { view: ActiveView }) {
       return <SettingsView />;
     case 'ai-capabilities':
       return <AICapabilitiesView />;
+    case 'model-hub':
+      return <ModelHubView />;
+    case 'modes':
+      return <ModesView />;
+    case 'memory':
+      return <MemoryView />;
+    case 'agents':
+      return <AgentsView />;
+    case 'security':
+      return <SecurityView />;
     default:
       return <DashboardView />;
   }
