@@ -48,4 +48,11 @@ prompt
 
 server.log
 # Skills directory
-/skills/
+/skills/node_modules/
+.next/
+db/*.db
+*.db-journal
+.zscripts/
+dev.log
+nvidia-*.json
+research-report.json

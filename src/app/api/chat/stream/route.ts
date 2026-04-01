@@ -82,12 +82,6 @@ export async function POST(request: NextRequest) {
       })),
     ];
 
-    // Tool-calling placeholder: define available tools if any
-    const tools: ToolDefinition[] | undefined = undefined;
-    // Future: load tools from DB and convert to OpenAI function format
-    // const enabledTools = await db.toolDef.findMany({ where: { isEnabled: true } });
-    // if (enabledTools.length > 0) { tools = enabledTools.map(t => ({ type: "function", function: { name: t.name, description: t.description, parameters: {} } })); }
-
     // Call NVIDIA streaming API
     let nvidiaResponse: Response;
     try {
@@ -96,7 +90,6 @@ export async function POST(request: NextRequest) {
         messages: chatMessages,
         temperature: effectiveTemperature,
         maxTokens: effectiveMaxTokens,
-        tools,
       });
     } catch (err) {
       const errorMsg =
@@ -114,28 +107,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create a TransformStream that converts NVIDIA SSE to our format and saves to DB
+    // Tee the stream: one branch for the client (with format conversion), one for DB persistence
+    const [clientStream, collectStream] = nvidiaResponse.body.tee();
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
-
-    const transformStream = new TransformStream({
-      async transform(chunk, controller) {
-        // Forward NVIDIA's SSE chunks directly to the client
-        controller.enqueue(chunk);
-      },
-
-      async flush(controller) {
-        // After streaming is done, we need to save the full response.
-        // The client will send the accumulated content back or we reconstruct here.
-        // Since we're passing through, we save on the client side or use a different approach.
-        // For now, we rely on the client to handle the stream content.
-        controller.terminate();
-      },
-    });
-
-    // We need to collect the full content for DB persistence.
-    // Use a tee approach: one branch goes to client, one for collection.
-    const [clientStream, collectStream] = nvidiaResponse.body.tee();
 
     // Fire-and-forget: collect content and save to DB
     (async () => {
@@ -189,13 +164,12 @@ export async function POST(request: NextRequest) {
           const promptTokens =
             usageData?.prompt_tokens || userTokens;
 
-          const assistantMsg = await db.message.create({
+          await db.message.create({
             data: {
               sessionId,
               role: "assistant",
               content: fullContent,
               tokens: assistantTokens,
-              modelId: effectiveModel,
             },
           });
 
@@ -210,17 +184,21 @@ export async function POST(request: NextRequest) {
           });
 
           // Track token usage
-          await db.tokenUsage.create({
-            data: {
-              sessionId,
-              modelId: effectiveModel,
-              inputTokens: promptTokens,
-              outputTokens: assistantTokens,
-            },
-          });
+          try {
+            await db.tokenUsage.create({
+              data: {
+                sessionId,
+                modelId: effectiveModel,
+                inputTokens: promptTokens,
+                outputTokens: assistantTokens,
+              },
+            });
+          } catch {
+            // tokenUsage table might not exist in old schema, ignore
+          }
 
           console.log(
-            `[stream] Saved message ${assistantMsg.id} (${assistantTokens} tokens) for session ${sessionId}`
+            `[stream] Saved message (${assistantTokens} tokens) for session ${sessionId}`
           );
         }
       } catch (err) {
@@ -228,61 +206,94 @@ export async function POST(request: NextRequest) {
       }
     })();
 
-    // Return the client-facing stream with proper SSE headers
-    // Add metadata event before the actual NVIDIA stream
-    const metadataEvent = `data: ${JSON.stringify({
-      type: "meta",
-      model: effectiveModel,
-      modelName: modelInfo?.name || effectiveModel,
-      temperature: effectiveTemperature,
-      maxTokens: effectiveMaxTokens,
-      thinkingEnabled: thinkingEnabled || false,
-      provider: modelInfo?.provider || "NVIDIA",
-      supportsVision: modelInfo?.supportsVision || false,
-    })}\n\n`;
-
-    const metadataStream = new ReadableStream({
-      start(controller) {
-        controller.enqueue(encoder.encode(metadataEvent));
-        controller.close();
-      },
-    });
-
-    const combinedStream = new ReadableStream({
+    // Transform NVIDIA SSE format into a simple format the ChatView can parse:
+    //   data: {"content":"chunk text"}  — for content chunks
+    //   data: {"done":true,"tokens":123} — for stream end
+    const transformedStream = new ReadableStream({
       async start(controller) {
-        const metadataReader = metadataStream.getReader();
-        const clientReader = clientStream.getReader();
+        const reader = clientStream.getReader();
+        let buffer = "";
+        let totalTokens = 0;
 
         try {
-          // First send metadata
-          while (true) {
-            const { done, value } = await metadataReader.read();
-            if (done) break;
-            controller.enqueue(value);
-          }
+          // Send metadata first
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({
+                type: "meta",
+                model: effectiveModel,
+                modelName: modelInfo?.name || effectiveModel,
+                provider: modelInfo?.provider || "NVIDIA",
+              })}\n\n`
+            )
+          );
 
-          // Then stream NVIDIA chunks
           while (true) {
-            const { done, value } = await clientReader.read();
+            const { done, value } = await reader.read();
             if (done) break;
-            controller.enqueue(value);
+
+            buffer += decoder.decode(value, { stream: true });
+
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed || !trimmed.startsWith("data: ")) continue;
+
+              const payload = trimmed.slice(6);
+              if (payload === "[DONE]") {
+                // Send done signal with token count
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({
+                      done: true,
+                      tokens: totalTokens,
+                    })}\n\n`
+                  )
+                );
+                continue;
+              }
+
+              try {
+                const parsed = JSON.parse(payload);
+                const delta = parsed.choices?.[0]?.delta;
+                const content = delta?.content;
+
+                if (content) {
+                  totalTokens += 1; // approximate per-chunk
+                  // Send in the format ChatView expects
+                  controller.enqueue(
+                    encoder.encode(
+                      `data: ${JSON.stringify({ content })}\n\n`
+                    )
+                  );
+                }
+
+                // Capture usage if available
+                if (parsed.usage) {
+                  totalTokens = parsed.usage.total_tokens || totalTokens;
+                }
+              } catch {
+                // skip unparseable chunks
+              }
+            }
           }
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : "Stream error";
           controller.enqueue(
             encoder.encode(
-              `data: ${JSON.stringify({ type: "error", message: errorMsg })}\n\n`
+              `data: ${JSON.stringify({ error: errorMsg })}\n\n`
             )
           );
         } finally {
-          metadataReader.releaseLock();
-          clientReader.releaseLock();
+          reader.releaseLock();
           controller.close();
         }
       },
     });
 
-    return new Response(combinedStream, {
+    return new Response(transformedStream, {
       headers: {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache, no-transform",
