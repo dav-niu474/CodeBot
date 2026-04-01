@@ -37,6 +37,8 @@ export function ChatView() {
     setAgentConfig,
     streamingMessageId,
     setStreamingMessageId,
+    selectedModel,
+    activeMode,
   } = useChatStore();
 
   const [input, setInput] = useState('');
@@ -105,7 +107,10 @@ export function ChatView() {
           body: JSON.stringify({
             sessionId: activeSessionId,
             message: userMessage,
+            model: selectedModel || agentConfig.activeModel,
             thinkingEnabled: agentConfig.thinkingEnabled,
+            temperature: agentConfig.temperature,
+            maxTokens: agentConfig.maxTokens,
           }),
         });
 
@@ -298,12 +303,34 @@ export function ChatView() {
     []
   );
 
-  const modelLabel =
-    agentConfig.activeModel === 'reasoning'
-      ? 'Reasoning'
-      : agentConfig.activeModel === 'fast'
-        ? 'Fast'
-        : 'Default';
+  const modelLabel = selectedModel || agentConfig.activeModel || 'Default';
+  const shortModelName = modelLabel.split('/').pop() || modelLabel;
+
+  const modeColors: Record<string, string> = {
+    interactive: 'text-emerald-400',
+    kairos: 'text-amber-400',
+    plan: 'text-blue-400',
+    worktree: 'text-teal-400',
+    voice: 'text-purple-400',
+    coordinator: 'text-orange-400',
+    swarm: 'text-red-400',
+    teammate: 'text-cyan-400',
+    ultraplan: 'text-indigo-400',
+    dream: 'text-pink-400',
+  };
+
+  const modeBgColors: Record<string, string> = {
+    interactive: 'border-emerald-500/20 bg-emerald-500/10',
+    kairos: 'border-amber-500/20 bg-amber-500/10',
+    plan: 'border-blue-500/20 bg-blue-500/10',
+    worktree: 'border-teal-500/20 bg-teal-500/10',
+    voice: 'border-purple-500/20 bg-purple-500/10',
+    coordinator: 'border-orange-500/20 bg-orange-500/10',
+    swarm: 'border-red-500/20 bg-red-500/10',
+    teammate: 'border-cyan-500/20 bg-cyan-500/10',
+    ultraplan: 'border-indigo-500/20 bg-indigo-500/10',
+    dream: 'border-pink-500/20 bg-pink-500/10',
+  };
 
   // Show welcome state if no session or no messages
   if (!activeSessionId) {
@@ -358,10 +385,16 @@ export function ChatView() {
 
           <Badge
             variant="outline"
+            className={cn('gap-1 text-[10px]', modeBgColors[activeMode] || 'border-border/50', modeColors[activeMode] || 'text-muted-foreground')}
+          >
+            {activeMode}
+          </Badge>
+          <Badge
+            variant="outline"
             className="gap-1 border-emerald-500/20 bg-emerald-500/10 text-[10px] text-emerald-400"
           >
             <Zap className="h-3 w-3" />
-            {modelLabel}
+            {shortModelName}
           </Badge>
           <Badge
             variant="outline"
@@ -488,8 +521,8 @@ export function ChatView() {
               Press Enter to send · Shift+Enter for new line
             </span>
             <span className="text-[10px] text-muted-foreground/40">
-              Model: {modelLabel}
-              {agentConfig.thinkingEnabled ? ' · 🧠 Thinking' : ''} · Max: {agentConfig.maxTokens.toLocaleString()} tokens
+              {shortModelName} · {activeMode} mode
+              {agentConfig.thinkingEnabled ? ' · Thinking' : ''} · Max: {agentConfig.maxTokens.toLocaleString()} tokens
             </span>
           </div>
         </form>
