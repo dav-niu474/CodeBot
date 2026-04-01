@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://medium.com/artificial-intel-ligence-playground/are-you-too-a-poor-gpu-guy-heres-how-to-run-400b-parameter-models-for-free-edf73d6345f4",
+    "name": "Are you too a Poor-GPU-guy? Here's how to run 400B parameter",
+    "snippet": "A complete guide to NVIDIA NIM's free tier: get hundreds of API calls, access frontier models like Llama 3.3 and DeepSeek, and build a CLI chat",
+    "host_name": "medium.com",
+    "rank": 0,
+    "date": "Mar 31, 2026",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.reddit.com/r/JanitorAI_Official/comments/1nv03p7/new_free_deepseek_proxy_nvidia_nim",
+    "name": "New free deepseek proxy. Nvidia nim. : r/JanitorAI_Official - Reddit",
+    "snippet": "This is a guide for the use of nvidia nim api on janitor which allows almost unlimited use of deepseek, kimi etc. basically here we will host a ... FREE DEEPSEEK V3.1 FOR ROLEPLAY : r/SillyTavernAI NVIDIA Free API: GLM-4.7, Minimax-M2.1, DeepSeek-3.1 More results from www.reddit.com",
+    "host_name": "www.reddit.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://run-ai-docs.nvidia.com/self-hosted/tutorials/inference-tutorials/nvidia-nim-distributed",
+    "name": "NVIDIA NIM Distributed Inference Deployment | Self-hosted",
+    "snippet": "This tutorial demonstrates how to run a distributed inference workload using the DeepSeek-R1 model on the NVIDIA Run:ai platform.",
+    "host_name": "run-ai-docs.nvidia.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/langflow-ai/langflow/issues/6505",
+    "name": "Add Compatibility for Open-Source Models like DeepSeek, Llama",
+    "snippet": "Provide a compatible API layer that allows requests to be routed to OpenAI models or user-hosted models (e.g., DeepSeek via Ollama, Llama via ...",
+    "host_name": "github.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://docs.api.nvidia.com/nim/reference/llm-apis",
+    "name": "LLM APIs - NVIDIA API Documentation",
+    "snippet": "This single API endpoint provides access to top models for use in a wide range of tasks including: chat, instruction following, question answering, ... Missing: compatible | Show results with: compatible",
+    "host_name": "docs.api.nvidia.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.facebook.com/groups/698593531630485/posts/1231351775021322",
+    "name": "Any working Python code for Deepseek API access? - Facebook",
+    "snippet": "That's the only API I know of (OpenAI API compatible endpoint) for working with DeepSeek hosted models (and most others, really).",
+    "host_name": "www.facebook.com",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://forums.developer.nvidia.com/t/noob-it-doesnt-work-for-some-reason-need-help-for-clarity/354999",
+    "name": "Noob, It doesn't work for some reason. need help for clarity - Models",
+    "snippet": "Model Name: deepseek-ai/deepseek-r1-0528 Proxy URL: https://integrate.api.nvidia.com/v1/chat/completions then generated an API key and copy ... Missing: compatible free",
+    "host_name": "forums.developer.nvidia.com",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://api-docs.deepseek.com",
+    "name": "DeepSeek API Docs: Your First API Call",
+    "snippet": "The DeepSeek API uses an API format compatible with OpenAI. By modifying the configuration, you can use the OpenAI SDK or softwares compatible with the OpenAI ... Missing: NVIDIA build Llama",
+    "host_name": "api-docs.deepseek.com",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.modular.com/models/deepseek-v3-2",
+    "name": "DeepSeek V3.2 - Modular",
+    "snippet": "Integrate through an OpenAI-compatible endpoint, swap models freely, and scale across clouds or hardware without redesigning your application stack. DeepSeek V3 ...",
+    "host_name": "www.modular.com",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=x5IrjbYHXBA",
+    "name": "How to use the openai api and deepseek api for free - YouTube",
+    "snippet": "Want to access OpenAI API and DeepSeek API for free? In this video, I'll show you how to use these powerful AI models for free for testing ... Missing: NVIDIA chat completions endpoint compatible",
+    "host_name": "www.youtube.com",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]

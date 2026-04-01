@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://build.nvidia.com/models",
+    "name": "Models",
+    "snippet": "Deploy and scale models on your GPU infrastructure of choice with NVIDIA NIM inference microservices. Read more\nDeploy and scale models on your GPU infrastructure of choice with NVIDIA NIM inference microservices . Read more",
+    "host_name": "build.nvidia.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://developer.nvidia.com/nim",
+    "name": "NVIDIA NIM for Developers",
+    "snippet": "Get free access to NIM API endpoints for unlimited prototyping, powered by DGX Cloud. Your membership to the NVIDIA Developer Program enables NVIDIA-hosted NIM ... Read more\nNVIDIA NIM is a set of accelerated inference microservices that allow organizations to run AI models on NVIDIA GPUs anywhere.",
+    "host_name": "developer.nvidia.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://build.nvidia.com",
+    "name": "Try NVIDIA NIM APIs",
+    "snippet": "Build Your AI Application with a Blueprint. Get started with workflows and code samples to build AI applications from the ground up. Read more",
+    "host_name": "build.nvidia.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://developer.nvidia.com/ai-models",
+    "name": "AI Models",
+    "snippet": "Explore and deploy top AI models built by the community, accelerated by NVIDIA's AI inference platform, and run on NVIDIA-accelerated infrastructure.",
+    "host_name": "developer.nvidia.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://docs.nvidia.com/nim/large-language-models/latest/deployment/model-free-nim.html",
+    "name": "Model-Free NIM — NVIDIA NIM for Large Language Models",
+    "snippet": "7 days ago — Run any supported model without a model-specific container image. By default, NIM containers ship with a built-in model manifest that defines ... Read more",
+    "host_name": "docs.nvidia.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://dineshr1493.medium.com/configuring-nvidia-ai-enterprise-and-nvidia-supported-models-in-enterprise-customer-environment-a36975d0fbca",
+    "name": "Configuring NVIDIA AI Enterprise and NVIDIA supported",
+    "snippet": "Configuring NVIDIA AI Enterprise and NVIDIA supported models in Enterprise Customer Environment A Practical, Engineer-Friendly End-to-End ...",
+    "host_name": "dineshr1493.medium.com",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://docs.datarobot.com/en/docs/install/installation/advanced-configuration/nim-configuration.html",
+    "name": "NVIDIA NIM Configuration",
+    "snippet": "However, below is the list of NIMs that DataRobot supports , along with recommended GPU requirements. Customers are allowed to attempt to launch NIMs on non- ... Read more",
+    "host_name": "docs.datarobot.com",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://dev.writer.com/providers/nvidia-nim",
+    "name": "Nvidia NIM",
+    "snippet": "This guide shows you how to configure Nvidia NIM as an external model provider in AI Studio. After setting up this provider, you can use foundation models ... Read more",
+    "host_name": "dev.writer.com",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://docs.nvidia.com/nim/large-language-models/latest/api-reference.html",
+    "name": "API Reference — NVIDIA NIM for Large Language Models",
+    "snippet": "7 days ago — List Models #. To list the available models , run the following command: curl -s http://localhost:8000/v1/ models . Health Checks#. To perform a ... Read more",
+    "host_name": "docs.nvidia.com",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://thenewstack.io/a-developers-guide-to-nim-nvidias-ai-application-platform",
+    "name": "A Developers Guide to NIM, Nvidia's AI Application Platform",
+    "snippet": "13-Aug-2024 — The Nvidia NIM API is a set of industry-standard APIs that enables developers to deploy AI models with ease, using just a few lines of code. Read more\n13 Aug 2024 — Developers can get started with the NIM API by visiting the Nvidia API Catalog , where they can find documentation, API reference information and ... Read more",
+    "host_name": "thenewstack.io",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]
