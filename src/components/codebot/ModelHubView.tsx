@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useChatStore } from '@/store/chat-store';
 import type { NvidiaModel, ModelCategory } from '@/lib/types';
-import { DEFAULT_NVIDIA_MODELS } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,14 +36,17 @@ import { toast } from 'sonner';
 // ────────────────────────────────────────────
 // Category tabs
 // ────────────────────────────────────────────
-type FilterTab = 'all' | ModelCategory | 'large';
+type FilterTab = 'all' | ModelCategory | 'large' | 'recommended';
 
 const filterTabs: { id: FilterTab; label: string }[] = [
   { id: 'all', label: 'All' },
+  { id: 'recommended', label: 'Recommended' },
   { id: 'chat', label: 'Chat' },
   { id: 'code', label: 'Code' },
   { id: 'reasoning', label: 'Reasoning' },
   { id: 'vision', label: 'Vision' },
+  { id: 'embedding', label: 'Embedding' },
+  { id: 'fast', label: 'Fast' },
   { id: 'large', label: 'Large' },
 ];
 
@@ -445,7 +447,6 @@ export function ModelHubView() {
       try {
         const res = await fetch('/api/models');
         const data = await res.json();
-        // API returns { success, models: [...] }
         const modelList = Array.isArray(data)
           ? data
           : Array.isArray(data.models)
@@ -453,12 +454,9 @@ export function ModelHubView() {
             : null;
         if (modelList && modelList.length > 0) {
           setModels(modelList);
-        } else {
-          // Fallback to defaults
-          setModels(DEFAULT_NVIDIA_MODELS);
         }
       } catch {
-        setModels(DEFAULT_NVIDIA_MODELS);
+        // Silently fail — models will be empty
       } finally {
         setIsLoading(false);
       }
@@ -483,6 +481,23 @@ export function ModelHubView() {
     // Category filter
     if (activeTab === 'all') return true;
     if (activeTab === 'large') return model.contextLength >= 100000;
+    if (activeTab === 'recommended') {
+      const recommendedIds = new Set([
+        'meta/llama-3.3-70b-instruct',
+        'google/gemma-3-27b-it',
+        'qwen/qwen2.5-coder-32b-instruct',
+        'moonshotai/kimi-k2-instruct',
+        'deepseek-ai/deepseek-r1-distill-qwen-32b',
+        'mistralai/mistral-large-3-675b-instruct-2512',
+        'nvidia/llama-3.1-nemotron-ultra-253b-v1',
+        'qwen/qwen3.5-397b-a17b',
+        'qwen/qwen3-coder-480b-a35b-instruct',
+        'meta/llama-3.2-90b-vision-instruct',
+        'z-ai/glm5',
+        'stepfun-ai/step-3.5-flash',
+      ]);
+      return recommendedIds.has(model.id);
+    }
     return model.category === activeTab;
   });
 

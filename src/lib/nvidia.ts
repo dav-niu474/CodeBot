@@ -3,6 +3,12 @@
 // OpenAI-compatible chat completions with streaming support
 // ============================================================
 
+import {
+  FULL_NVIDIA_MODEL_CATALOG,
+  getModelsByCategory as catalogGrouped,
+  getRecommendedModels as catalogRecommended,
+} from "@/lib/nvidia-models";
+
 const NVIDIA_API_KEY = "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";
 const NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1";
 
@@ -17,7 +23,7 @@ let requestTimestamps: number[] = [];
 // Types
 // ============================================================
 
-export type ModelCategory = "chat" | "reasoning" | "vision" | "code" | "large";
+export type ModelCategory = "chat" | "reasoning" | "vision" | "code" | "embedding" | "fast" | "large";
 
 export interface NvidiaModelInfo {
   id: string;
@@ -286,99 +292,10 @@ export async function listModels(): Promise<NvidiaListedModel[]> {
 }
 
 /**
- * Get curated recommended models with full metadata.
+ * Get curated recommended models — delegates to the full catalog.
  */
 export function getRecommendedModels(): NvidiaModelInfo[] {
-  return [
-    {
-      id: "meta/llama-3.3-70b-instruct",
-      name: "Llama 3.3 70B",
-      provider: "Meta",
-      contextLength: 131072,
-      supportsStreaming: true,
-      supportsVision: false,
-      isFree: true,
-      category: "chat",
-      description: "Default fast model — excellent general-purpose instruction following with strong reasoning capabilities",
-    },
-    {
-      id: "google/gemma-3-27b-it",
-      name: "Gemma 3 27B",
-      provider: "Google",
-      contextLength: 131072,
-      supportsStreaming: true,
-      supportsVision: true,
-      isFree: true,
-      category: "chat",
-      description: "Balanced model with strong multilingual support and efficient inference",
-    },
-    {
-      id: "qwen/qwen2.5-coder-32b-instruct",
-      name: "Qwen 2.5 Coder 32B",
-      provider: "Qwen (Alibaba)",
-      contextLength: 131072,
-      supportsStreaming: true,
-      supportsVision: false,
-      isFree: true,
-      category: "code",
-      description: "Code specialist — excels at code generation, debugging, and explanation across 90+ languages",
-    },
-    {
-      id: "moonshotai/kimi-k2-instruct",
-      name: "Kimi K2",
-      provider: "Moonshot AI",
-      contextLength: 131072,
-      supportsStreaming: true,
-      supportsVision: false,
-      isFree: true,
-      category: "reasoning",
-      description: "Reasoning model with strong analytical and problem-solving capabilities",
-    },
-    {
-      id: "mistralai/mistral-large-3-675b-instruct-2512",
-      name: "Mistral Large 3 675B",
-      provider: "Mistral AI",
-      contextLength: 131072,
-      supportsStreaming: true,
-      supportsVision: true,
-      isFree: true,
-      category: "large",
-      description: "Large model with exceptional reasoning, multilingual, and coding performance",
-    },
-    {
-      id: "deepseek-ai/deepseek-r1-distill-qwen-32b",
-      name: "DeepSeek R1 32B",
-      provider: "DeepSeek",
-      contextLength: 131072,
-      supportsStreaming: true,
-      supportsVision: false,
-      isFree: true,
-      category: "reasoning",
-      description: "Thinking model with chain-of-thought reasoning distilled from DeepSeek R1",
-    },
-    {
-      id: "nvidia/llama-3.1-nemotron-ultra-253b-v1",
-      name: "Nemotron Ultra 253B",
-      provider: "NVIDIA",
-      contextLength: 131072,
-      supportsStreaming: true,
-      supportsVision: false,
-      isFree: true,
-      category: "large",
-      description: "Ultra-capable model optimized by NVIDIA for complex reasoning and instruction following",
-    },
-    {
-      id: "qwen/qwen3.5-397b-a17b",
-      name: "Qwen 3.5 397B MoE",
-      provider: "Qwen (Alibaba)",
-      contextLength: 131072,
-      supportsStreaming: true,
-      supportsVision: true,
-      isFree: true,
-      category: "large",
-      description: "Premium MoE model with massive 397B parameters, top-tier across all benchmarks",
-    },
-  ];
+  return catalogRecommended();
 }
 
 /**
@@ -553,27 +470,15 @@ export function getDefaultModel(): string {
 }
 
 /**
- * Get models grouped by category.
+ * Get ALL models from the full catalog.
  */
-export function getModelsByCategory(): Record<ModelCategory, NvidiaModelInfo[]> {
-  const models = getRecommendedModels();
-  const grouped: Record<ModelCategory, NvidiaModelInfo[]> = {
-    chat: [],
-    code: [],
-    reasoning: [],
-    vision: [],
-    large: [],
-  };
+export function getAllModels(): NvidiaModelInfo[] {
+  return FULL_NVIDIA_MODEL_CATALOG;
+}
 
-  for (const model of models) {
-    if (grouped[model.category]) {
-      grouped[model.category].push(model);
-    }
-    // Models that support vision also go in the vision category
-    if (model.supportsVision && model.category !== "vision") {
-      grouped.vision.push(model);
-    }
-  }
-
-  return grouped;
+/**
+ * Get models grouped by category — delegates to the full catalog.
+ */
+export function getModelsByCategory(): Record<string, NvidiaModelInfo[]> {
+  return catalogGrouped();
 }
