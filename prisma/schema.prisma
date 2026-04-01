@@ -1,0 +1,76 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id          String    @id @default(cuid())
+  title       String    @default("New Session")
+  model       String    @default("default")
+  systemPrompt String?
+  isActive    Boolean   @default(true)
+  tokenCount  Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  messages    Message[]
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  sessionId String
+  role      String   // "user", "assistant", "system", "tool"
+  content   String
+  toolCalls String?  // JSON string of tool calls
+  toolResults String? // JSON string of tool results
+  tokens    Int      @default(0)
+  createdAt DateTime @default(now())
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model ToolDef {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String
+  icon        String   @default("Wrench")
+  category    String   @default("general")
+  isEnabled   Boolean  @default(true)
+  isReadOnly  Boolean  @default(false)
+  config      String?  // JSON config
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model SkillDef {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String
+  icon        String   @default("Sparkles")
+  category    String   @default("general")
+  isEnabled   Boolean  @default(true)
+  prompt      String?  // Skill system prompt
+  config      String?  // JSON config
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AgentConfig {
+  id             String   @id @default(cuid())
+  agentName      String   @default("CodeBot")
+  avatar         String   @default("🤖")
+  personality    String   @default("helpful")
+  maxTokens      Int      @default(4096)
+  temperature    Float    @default(0.7)
+  autoCompact    Boolean  @default(true)
+  compactThreshold Int    @default(100000)
+  toolConcurrency Int     @default(5)
+  theme          String   @default("dark")
+  language       String   @default("zh-CN")
+  thinkingEnabled Boolean @default(false)
+  activeModel     String  @default("default")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}

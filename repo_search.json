@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://github.com/chujianyun/skills",
+    "name": "chujianyun/skills: WuMing's Claude Skills",
+    "snippet": "这是悟鸣公开维护的一组 Agent Skills，偏实战、偏工作流，主要服务于AI 工具使用、文档解读、项目配置、运维排障与技能分发。 和“技能清单”相比，这个仓库更适合被理解 ...",
+    "host_name": "github.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/anthropics/claude-code",
+    "name": "anthropics/claude-code: Claude Code is an agentic coding",
+    "snippet": "Claude Code is an agentic coding tool that lives in your terminal, understands your codebase, and helps you code faster by executing routine tasks.",
+    "host_name": "github.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/shareAI-lab/learn-claude-code",
+    "name": "Learn Claude Code -- Harness Engineering for Real Agents",
+    "snippet": "The official Claude Code Agent SDK communicates with a full CLI process under the hood -- each concurrent user means a separate terminal process. Kode SDK is a ...",
+    "host_name": "github.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/darcyegb/ClaudeCodeAgents",
+    "name": "A set of useful QA agents for Claude Code.",
+    "snippet": "Claude Code Agents Collection . This repository contains a collection of specialized agent definitions for Claude Code, Anthropic's AI-powered coding assistant.",
+    "host_name": "github.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/RichardAtCT/claude-code-telegram",
+    "name": "Claude Code Telegram Bot",
+    "snippet": "A Telegram bot that gives you remote access to Claude Code . Chat naturally with Claude about your projects from anywhere -- no terminal commands needed. What is ...",
+    "host_name": "github.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://lobehub.com/skills/chujianyun-skills-claudian-installer",
+    "name": "claudian-installer | Skills Marketplace",
+    "snippet": "4 Mar 2026 — Install Claudian - an Obsidian plugin that embeds Claude Code as an AI collaborator in your vault, giving it full agentic capabilities: file ...",
+    "host_name": "lobehub.com",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://llmbase.ai/skills/chujianyun/sync-skills",
+    "name": "sync-skills AI Agent Skill - Free Download | LLMBase",
+    "snippet": "sync-skills is an AI agent skill from chujianyun /skills with 38 installs. Ranked #342 globally. Install with: npx skills add chujianyun/skills --skill ...",
+    "host_name": "llmbase.ai",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/jdrhyne/agent-skills",
+    "name": "A collection of AI agent skills for Clawdbot, Claude Code",
+    "snippet": "Every skill in this repo is scanned by AgentVerus — an open-source security scanner that detects prompt injection, data exfiltration, and hidden threats in ...",
+    "host_name": "github.com",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/avivl/claude-007-agents",
+    "name": "avivl/claude-007-agents: 🤖 A unified AI",
+    "snippet": "A unified AI agent orchestration system featuring 10's of specialized agents across 14 categories for modern software development.",
+    "host_name": "github.com",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/chusri/claude-code-agents",
+    "name": "GitHub - chusri/claude-code-agents: A collection of",
+    "snippet": "This repository contains 75 specialized subagents that extend Claude Code's capabilities. Each subagent is an expert in a specific domain, automatically invoked based on context or explicitly called when needed.",
+    "host_name": "github.com",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]
