@@ -121,6 +121,15 @@ export function ChatView() {
           throw new Error(data.error || 'Request failed');
         }
 
+        // Check if response is NOT SSE format
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('text/event-stream') && !contentType.includes('application/octet-stream')) {
+          const text = await res.text();
+          fullContent = text;
+          updateMessage(streamMsgId, { content: fullContent, isStreaming: false, tokens: Math.floor(text.length / 4) });
+          return;
+        }
+
         const reader = res.body?.getReader();
         const decoder = new TextDecoder();
         let fullContent = '';
@@ -136,9 +145,15 @@ export function ChatView() {
             buffer = lines.pop() || '';
 
             for (const line of lines) {
-              if (line.startsWith('data: ')) {
+              const trimmed = line.trim();
+              if (!trimmed) continue;
+
+              if (trimmed.startsWith('data: ')) {
+                const payload = trimmed.slice(6);
+                if (payload === '[DONE]') continue;
+
                 try {
-                  const data = JSON.parse(line.slice(6));
+                  const data = JSON.parse(payload);
                   if (data.error) {
                     throw new Error(data.error);
                   }
@@ -152,9 +167,40 @@ export function ChatView() {
                       tokens: data.tokens || 0,
                     });
                   }
-                } catch {
-                  // ignore parse errors for partial lines
+                } catch (parseErr) {
+                  // If it's an error we threw ourselves, re-throw
+                  if (parseErr instanceof Error && parseErr.message && !parseErr.message.includes('JSON')) {
+                    throw parseErr;
+                  }
+                  // Otherwise, treat the raw payload as content (model returned non-JSON)
+                  if (payload && payload.length > 0) {
+                    const rawText = payload.replace(/^["']|["']$/g, '');
+                    if (rawText) {
+                      fullContent += rawText + '\n';
+                      updateMessage(streamMsgId, { content: fullContent });
+                    }
+                  }
                 }
+              } else if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+                // Possible JSON without data: prefix
+                try {
+                  const data = JSON.parse(trimmed);
+                  if (data.content) {
+                    fullContent += data.content;
+                    updateMessage(streamMsgId, { content: fullContent });
+                  }
+                  if (data.error) {
+                    throw new Error(data.error);
+                  }
+                } catch {
+                  // Not valid JSON, treat as text
+                  fullContent += trimmed + '\n';
+                  updateMessage(streamMsgId, { content: fullContent });
+                }
+              } else {
+                // Plain text line (not SSE formatted)
+                fullContent += trimmed + '\n';
+                updateMessage(streamMsgId, { content: fullContent });
               }
             }
           }

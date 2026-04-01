@@ -5,10 +5,8 @@ import type { Message } from '@/lib/types';
 import { useChatStore } from '@/store/chat-store';
 import { Badge } from '@/components/ui/badge';
 import { motion } from 'framer-motion';
-import ReactMarkdown from 'react-markdown';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Copy, Check, Bot, User, Brain } from 'lucide-react';
+import { RichContentRenderer } from './RichContentRenderer';
+import { Copy, Check, User, Brain } from 'lucide-react';
 import { useState, useCallback } from 'react';
 
 function CopyButton({ text }: { text: string }) {
@@ -210,50 +208,8 @@ export function MessageBubble({
               {/* Text content */}
               {textContent && (
                 <>
-                  <ReactMarkdown
-                    components={{
-                      code({ className, children, ...props }) {
-                        const match = /language-(\w+)/.exec(className || '');
-                        const codeString = String(children).replace(/\n$/, '');
-
-                        if (match) {
-                          return (
-                            <div className="codebot-code-block my-2">
-                              <div className="codebot-code-header">
-                                <span className="font-mono">{match[1]}</span>
-                                <CopyButton text={codeString} />
-                              </div>
-                              <SyntaxHighlighter
-                                style={oneDark}
-                                language={match[1]}
-                                PreTag="div"
-                                customStyle={{
-                                  margin: 0,
-                                  padding: '1rem',
-                                  background: 'oklch(0.09 0.005 260)',
-                                  fontSize: '0.75rem',
-                                }}
-                              >
-                                {codeString}
-                              </SyntaxHighlighter>
-                            </div>
-                          );
-                        }
-
-                        return (
-                          <code className={className} {...props}>
-                            {children}
-                          </code>
-                        );
-                      },
-                      pre({ children }) {
-                        return <>{children}</>;
-                      },
-                    }}
-                  >
-                    {textContent}
-                  </ReactMarkdown>
-                  {/* Blinking cursor for streaming */}
+                  {isStreaming && !textContent && <ThinkingIndicator />}
+                  <RichContentRenderer content={textContent} isStreaming={isStreaming} />
                   {isStreaming && <BlinkingCursor />}
                 </>
               )}

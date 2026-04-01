@@ -157,3 +157,59 @@ Stage Summary:
 - Chat: Markdown export with Download button, full message history export
 - Keyboard Shortcuts: global `?` key overlay, 3 grouped sections, Framer Motion animations
 - No new packages installed, 0 lint errors
+
+---
+Task ID: 4
+Agent: Main Orchestrator
+Task: Fix streaming parser, build RichContentRenderer, update MessageBubble
+
+Work Log:
+- Read worklog.md and all target files (ChatView.tsx, MessageBubble.tsx, globals.css) to understand current state
+- **Task 1 — Fix Streaming Parser** (`src/components/codebot/ChatView.tsx`):
+  - Added non-SSE response detection: checks Content-Type header before reading stream; if not `text/event-stream` or `application/octet-stream`, reads entire body as raw text
+  - Replaced streaming parsing inner loop with robust logic:
+    - `data: [DONE]` is properly skipped
+    - `data:` lines that fail JSON.parse: raw payload is extracted and used as content (strips surrounding quotes)
+    - Lines starting with `{` or `[` (JSON without `data:` prefix): attempts JSON.parse, falls back to plain text
+    - Non-SSE lines: appended directly as content
+    - Re-throws errors that were explicitly thrown (not JSON parse errors)
+  - Preserves existing behavior for well-formed SSE with `content`, `done`, `error`, `tokens` fields
+- **Task 2 — RichContentRenderer** (`src/components/codebot/RichContentRenderer.tsx`):
+  - Created `'use client'` component with `react-markdown`, `remark-gfm`, `rehype-raw` plugins
+  - `CopyButton` helper sub-component with clipboard API + success state
+  - `MermaidDiagram` sub-component: dynamic `mermaid` import via `useEffect`, renders SVG with `dangerouslySetInnerHTML`, loading placeholder, error fallback with raw code display
+  - `MathBlock` sub-component: styled inline/block math placeholder with violet accent
+  - `preprocessMathContent` function: replaces `$$...$$` with styled div blocks, `$...$` with inline code spans
+  - ReactMarkdown components override:
+    - `code`: detects block vs inline via node position, mermaid blocks render MermaidDiagram, regular blocks render SyntaxHighlighter with oneDark + CopyButton + language header
+    - `pre`: passthrough fragment
+    - `table/thead/th/td`: styled GFM tables with rounded borders and zinc-800/50 header
+    - `input`: styled checkboxes with emerald accent for task lists
+    - `img`: wrapped in bordered container with max-h-64 and lazy loading
+    - `div`: special handling for math-block class
+  - Exported `RichContentRenderer` with `{ content, isStreaming }` props
+- **Task 3 — CSS Styles** (`src/app/globals.css`):
+  - Appended Rich Content Renderer Styles section (160+ lines):
+    - Mermaid container SVG max-width
+    - Markdown body base styles (line-height, word-break, first/last child margins)
+    - Heading styles (h1-h4) with consistent color and spacing
+    - Paragraph, list, blockquote, hr, link, strong, em, del styles
+    - Task list items with `:has()` selector for checkbox styling
+    - Inline code styling (zinc-800/60 background, border)
+    - `.codebot-code-block` and `.codebot-code-header` custom styles
+    - Streaming cursor animation (`pulse-dot` keyframes + `.typing-dot`)
+    - Custom scrollbar for code blocks
+- **Task 4 — Update MessageBubble** (`src/components/codebot/MessageBubble.tsx`):
+  - Removed imports: `ReactMarkdown`, `SyntaxHighlighter`, `oneDark`, `Bot`
+  - Added import: `RichContentRenderer` from `./RichContentRenderer`
+  - Replaced ReactMarkdown rendering block with `<RichContentRenderer content={textContent} isStreaming={isStreaming} />`
+  - Kept all existing components: `CopyButton`, `TypingIndicator`, `BlinkingCursor`, `ThinkingIndicator`, `ImageContent`, `formatTime`, `MessageListLoading`, `WelcomeState`
+- Ran lint: 0 errors, 0 warnings
+- Dev server compiling and serving successfully (200 responses)
+
+Stage Summary:
+- 1 file created: RichContentRenderer.tsx (~300 lines)
+- 3 files modified: ChatView.tsx (streaming parser fix), globals.css (160+ lines appended), MessageBubble.tsx (simplified rendering)
+- Root cause fixed: non-SSE responses (HTML, plain text, malformed SSE) no longer cause JSON.parse errors with empty output
+- Rich markdown rendering: GFM tables, task lists, strikethrough, auto-linking, code blocks with copy + language label, mermaid diagrams, math placeholders, image rendering
+- No new packages installed, 0 lint errors
