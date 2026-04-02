@@ -47,6 +47,8 @@ export interface Message {
   createdAt: string;
   isStreaming?: boolean;
   thinkingContent?: string | null;
+  /** Structured tool call display data (JSON string) */
+  toolCallsDisplay?: string | null;
 }
 
 /**
@@ -922,6 +924,19 @@ export interface ToolResult {
   toolCallId: string;
   output: string;
   isError?: boolean;
+}
+
+/** Display data for a tool call shown in chat UI */
+export interface ToolCallDisplay {
+  toolCallId: string;
+  toolName: string;
+  arguments: string;
+  riskLevel?: 'low' | 'medium' | 'high' | 'critical';
+  status?: 'pending' | 'executing' | 'success' | 'error' | 'waiting_approval';
+  result?: string;
+  duration?: number;
+  startedAt?: string;
+  completedAt?: string;
 }
 
 /** AI capability that can be toggled on/off */

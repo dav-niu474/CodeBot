@@ -1,13 +1,14 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import type { Message } from '@/lib/types';
+import type { Message, ToolCallDisplay } from '@/lib/types';
 import { useChatStore } from '@/store/chat-store';
 import { Badge } from '@/components/ui/badge';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { RichContentRenderer } from './RichContentRenderer';
+import { ToolCallBlock } from './ToolCallBlock';
 import { Copy, Check, User, Brain, ChevronDown } from 'lucide-react';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -119,6 +120,49 @@ export function MessageBubble({
   const imageMatch = message.content.match(/\[IMAGE\](data:image[^;\s]+;base64,[A-Za-z0-9+/=]+)/);
   const textContent = message.content.replace(/\[IMAGE\].*/, '').trim();
 
+  // Parse tool calls from message.toolCallsDisplay (new SSE format) or message.toolCalls (legacy)
+  const parsedToolCalls: ToolCallDisplay[] = useMemo(() => {
+    // Priority 1: toolCallsDisplay (new structured format from SSE events)
+    if (message.toolCallsDisplay) {
+      try {
+        const calls = JSON.parse(message.toolCallsDisplay);
+        if (Array.isArray(calls)) return calls;
+        if (calls && calls.toolCallId) return [calls];
+      } catch {
+        // ignore parse errors
+      }
+    }
+
+    // Priority 2: toolCalls field (legacy SSE delta format or new format)
+    if (!message.toolCalls || message.toolCalls === 'thinking' || message.toolCalls === '') return [];
+
+    try {
+      const calls = JSON.parse(message.toolCalls);
+      if (!Array.isArray(calls)) return [];
+      if (calls.length === 0) return [];
+
+      // Check if already in ToolCallDisplay format (has toolCallId + toolName)
+      if (calls[0].toolCallId && calls[0].toolName) {
+        return calls as ToolCallDisplay[];
+      }
+
+      // Convert old SSE delta format: { id, type, function: { name, arguments } }
+      return calls
+        .filter((c: Record<string, unknown>) => c.function && typeof c.function === 'object')
+        .map((c: Record<string, unknown>) => {
+          const fn = c.function as { name?: string; arguments?: string };
+          return {
+            toolCallId: (c.id as string) || `tc-${Math.random().toString(36).slice(2, 8)}`,
+            toolName: fn.name || 'unknown',
+            arguments: fn.arguments || '{}',
+            status: (isStreaming ? 'executing' : 'success') as ToolCallDisplay['status'],
+          };
+        });
+    } catch {
+      return [];
+    }
+  }, [message.toolCalls, message.toolCallsDisplay, isStreaming]);
+
   if (isSystem) {
     return (
       <motion.div
@@ -217,6 +261,21 @@ export function MessageBubble({
 
               {/* Thinking/reasoning block: collapsible details element */}
               {message.thinkingContent && <ThinkingBlock content={message.thinkingContent} />}
+
+              {/* Tool Call Blocks */}
+              {parsedToolCalls.length > 0 && (
+                <div className="space-y-1.5 mb-2">
+                  <AnimatePresence>
+                    {parsedToolCalls.map((tc, idx) => (
+                      <ToolCallBlock
+                        key={tc.toolCallId || `tc-${idx}`}
+                        toolCall={tc}
+                        isLatest={idx === parsedToolCalls.length - 1}
+                      />
+                    ))}
+                  </AnimatePresence>
+                </div>
+              )}
 
               {/* Image from tool results */}
               {message.toolResults && message.toolResults.startsWith('data:image') && (

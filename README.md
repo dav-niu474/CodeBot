@@ -41,7 +41,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    CodeBot Agent v2.5                            │
+│                    CodeBot Agent v3.0                            │
 │                                                                 │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────────┐   │
 │  │Dashboard │ │   Chat   │ │Model Hub │ │     Modes (10)   │   │
@@ -377,20 +377,23 @@ CodeBot/
 - [x] **Git分析视图** — 新增Git管理视图, 完整的Git API
 - [x] **Dashboard升级** — v2.5版本标识, 新能力卡片, 更新日志
 
-### 🔜 v3.0.0 — 工具执行引擎
+### ✅ v3.0.0 — 工具执行引擎 (2025-07)
 
-**核心目标: 让44个工具真正可执行**
+**核心目标: 让44个工具真正可执行 — Agent真正成为自主工具使用者**
 
-- [ ] **Query Loop引擎** — 完整的 思考→行动→观察 循环
-- [ ] **Tool Use / Function Calling** — AI自动调用工具 (OpenAI function-calling格式)
-- [ ] **Bash安全沙箱** — 25项安全检查实现 (参照 `bashSecurity.ts`)
-- [ ] **文件操作工具** — FileRead / FileWrite / FileEdit 实际执行
-- [ ] **搜索工具** — Glob / Grep 实际搜索项目文件
-- [ ] **Web工具** — WebSearch / WebFetch 实际联网
-- [ ] **ToolSearch动态加载** — 按需注入工具Schema，节省Token
-- [ ] **工具权限审批流** — Allow/Deny/Ask 三级交互
-- [ ] **子Agent工具** — AgentTool 派生执行子任务
-- [ ] **TodoWrite工具** — 结构化任务列表
+- [x] **Query Loop引擎** — 完整的 思考→行动→观察 循环 (最多10轮自动迭代)
+- [x] **Tool Use / Function Calling** — AI自动调用工具 (NVIDIA function-calling格式, 44个JSON Schema)
+- [x] **Bash安全沙箱** — 25项安全检查实现 (fork bomb/netcat阻断, sudo/rm -rf警告, 输出截断)
+- [x] **文件操作工具** — FileRead / FileWrite / FileEdit 实际执行 (支持行号/偏移/全量替换)
+- [x] **搜索工具** — Glob (自定义正则转换, 递归遍历, 200结果限制) / Grep (正则搜索, 文件过滤, 二进制跳过)
+- [x] **Web工具** — WebSearch (z-ai-web-dev-sdk集成) / WebFetch (HTML→文本提取, 15s超时, 2MB限制)
+- [x] **ToolSearch动态加载** — 44工具NVIDIA Schema定义, getCoreToolSchemas()/getAllToolSchemas()
+- [x] **工具权限审批流** — Allow/Deny/Ask 三级交互UI (风险等级着色, 弹窗审批)
+- [x] **子Agent工具** — AgentTool (V3 stub, V4完整实现)
+- [x] **TodoWrite工具** — 结构化任务列表 (内存存储, 按sessionId隔离, 状态追踪)
+- [x] **V3 SSE协议** — tool_call_start/tool_call_result/loop_iteration 事件流
+- [x] **ToolCallBlock UI** — 工具调用可视化 (图标/名称/参数/风险/状态/时长, 可展开详情)
+- [x] **ToolApprovalDialog** — 权限审批弹窗 (风险自适应, 参数预览, 三级操作按钮)
 
 ### 🔜 v3.5.0 — Token压缩与记忆
 

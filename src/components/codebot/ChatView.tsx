@@ -201,6 +201,7 @@ export function ChatView() {
         role: 'assistant',
         content: '',
         toolCalls: null,
+        toolCallsDisplay: null,
         toolResults: null,
         tokens: 0,
         createdAt: new Date().toISOString(),
@@ -208,6 +209,29 @@ export function ChatView() {
       };
       addMessage(streamMsg);
       setStreamingMessageId(streamMsgId);
+
+      // Track V3 tool call displays
+      const toolCallDisplays: Array<{
+        toolCallId: string;
+        toolName: string;
+        arguments: string;
+        riskLevel?: string;
+        status: string;
+        result?: string;
+        duration?: number;
+        startedAt?: string;
+        completedAt?: string;
+      }> = [];
+      let isV3Protocol = false;
+
+      // Helper to update toolCallsDisplay on the message
+      const syncToolDisplays = () => {
+        updateMessage(streamMsgId, {
+          toolCallsDisplay: toolCallDisplays.length > 0
+            ? JSON.stringify(toolCallDisplays)
+            : null,
+        });
+      };
 
       try {
         const res = await fetch('/api/chat/stream', {
@@ -266,14 +290,59 @@ export function ChatView() {
                   if (data.error) {
                     throw new Error(data.error);
                   }
+
+                  // ── V3 Protocol Events ────────────────────
+                  if (data.v3) isV3Protocol = true;
+
+                  // Tool call start — show executing state
+                  if (data.type === 'tool_call_start') {
+                    const newTc = {
+                      toolCallId: data.toolCallId,
+                      toolName: data.toolName,
+                      arguments: data.arguments,
+                      riskLevel: data.riskLevel || 'low',
+                      status: 'executing' as const,
+                      startedAt: new Date().toISOString(),
+                    };
+                    toolCallDisplays.push(newTc);
+                    syncToolDisplays();
+                    continue;
+                  }
+
+                  // Tool call progress — update status text
+                  if (data.type === 'tool_call_progress') {
+                    // Could add progress indicator, for now just keep executing state
+                    continue;
+                  }
+
+                  // Tool call result — show completed/error state
+                  if (data.type === 'tool_call_result') {
+                    const tc = toolCallDisplays.find(
+                      (t) => t.toolCallId === data.toolCallId
+                    );
+                    if (tc) {
+                      tc.status = data.status === 'error' ? 'error' : 'success';
+                      tc.result = data.result;
+                      tc.duration = data.duration;
+                      tc.completedAt = new Date().toISOString();
+                    }
+                    syncToolDisplays();
+                    continue;
+                  }
+
+                  // Loop iteration indicator
+                  if (data.type === 'loop_iteration') {
+                    continue;
+                  }
+
+                  // ── Legacy / V2 Protocol Events ────────────
                   // Handle reasoning/thinking content from reasoning models
                   if (data.reasoning) {
                     fullThinking += data.reasoning;
                     updateMessage(streamMsgId, { thinkingContent: fullThinking });
                   }
-                  // Handle tool calls
+                  // Handle legacy tool_calls (V2 format)
                   if (data.tool_calls) {
-                    // Forward tool_calls as JSON string for display
                     const currentMsg = useChatStore.getState().messages.find(m => m.id === streamMsgId);
                     const existingCalls = currentMsg?.toolCalls;
                     const updatedCalls = existingCalls
@@ -292,11 +361,9 @@ export function ChatView() {
                     });
                   }
                 } catch (parseErr) {
-                  // If it's an error we threw ourselves, re-throw
                   if (parseErr instanceof Error && parseErr.message && !parseErr.message.includes('JSON')) {
                     throw parseErr;
                   }
-                  // Otherwise, treat the raw payload as content (model returned non-JSON)
                   if (payload && payload.length > 0) {
                     const rawText = payload.replace(/^["']|["']$/g, '');
                     if (rawText) {
@@ -306,7 +373,6 @@ export function ChatView() {
                   }
                 }
               } else if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-                // Possible JSON without data: prefix
                 try {
                   const data = JSON.parse(trimmed);
                   if (data.content) {
@@ -317,12 +383,10 @@ export function ChatView() {
                     throw new Error(data.error);
                   }
                 } catch {
-                  // Not valid JSON, treat as text
                   fullContent += trimmed + '\n';
                   updateMessage(streamMsgId, { content: fullContent });
                 }
               } else {
-                // Plain text line (not SSE formatted)
                 fullContent += trimmed + '\n';
                 updateMessage(streamMsgId, { content: fullContent });
               }
@@ -330,12 +394,29 @@ export function ChatView() {
           }
         }
 
-        // If no content was streamed, use fallback
+        // Finalize: if tool calls were in progress, mark remaining as error
+        toolCallDisplays.forEach((tc) => {
+          if (tc.status === 'executing') {
+            tc.status = 'error';
+            tc.result = 'Execution timed out or interrupted';
+            tc.completedAt = new Date().toISOString();
+          }
+        });
+        syncToolDisplays();
+
+        // If no content was streamed
         if (!fullContent) {
-          updateMessage(streamMsgId, {
-            content: 'No response received. Please try again.',
-            isStreaming: false,
-          });
+          const hasToolResults = toolCallDisplays.some(
+            (tc) => tc.status === 'success'
+          );
+          if (!hasToolResults) {
+            updateMessage(streamMsgId, {
+              content: 'No response received. Please try again.',
+              isStreaming: false,
+            });
+          } else {
+            updateMessage(streamMsgId, { isStreaming: false });
+          }
         }
       } catch (err) {
         updateMessage(streamMsgId, {
