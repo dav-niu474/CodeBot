@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { chatCompletion, getDefaultModel } from "@/lib/nvidia";
 
-const VALID_LAYERS = ["session", "memdir", "magic_doc", "team"];
+const VALID_LAYERS = ["session", "memdir", "magic_doc", "magic-doc", "dream", "team"];
 
 /**
  * POST /api/memory/dream

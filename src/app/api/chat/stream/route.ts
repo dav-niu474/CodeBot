@@ -10,6 +10,8 @@ import {
 import { getCoreToolSchemas, getToolMeta } from "@/lib/tools/definitions";
 import { executeTool } from "@/lib/tools/executor";
 import type { ToolExecutionResult, ToolExecutionContext } from "@/lib/tools/types";
+import { compressMessages, needsCompression, DEFAULT_COMPRESSION_CONFIG } from "@/lib/compression";
+import { buildFullMemoryContext, processConversationForMemory } from "@/lib/memory/memory-manager";
 
 // ────────────────────────────────────────────
 // Constants
@@ -262,14 +264,33 @@ export async function POST(request: NextRequest) {
       take: 30,
     });
 
+    // Build memory context and enhance system prompt
+    const memoryContext = await buildFullMemoryContext(sessionId);
+    const enhancedSystemPrompt = SYSTEM_PROMPT + (memoryContext || '');
+
     // Build messages array for NVIDIA API
-    const chatMessages: ChatMessage[] = [
-      { role: "system", content: SYSTEM_PROMPT },
+    let chatMessages: ChatMessage[] = [
+      { role: "system", content: enhancedSystemPrompt },
       ...history.map((msg) => ({
         role: (msg.role as "user" | "assistant" | "system" | "tool") || "user",
         content: msg.content,
       })),
     ];
+
+    // ── Pre-loop compression check ─────────────
+    const conversationMessages = chatMessages.filter(m => m.role !== 'system');
+    if (needsCompression(conversationMessages, DEFAULT_COMPRESSION_CONFIG)) {
+      const systemMessages = chatMessages.filter(m => m.role === 'system');
+      const result = await compressMessages(conversationMessages, DEFAULT_COMPRESSION_CONFIG);
+      chatMessages = [
+        ...systemMessages,
+        ...result.messages.map(m => ({
+          role: m.role as 'user' | 'assistant' | 'system' | 'tool',
+          content: m.content,
+        })),
+      ];
+      console.log(`[compression] Pre-loop compressed ${result.compressedCount} messages, ratio: ${(result.ratio * 100).toFixed(0)}%`);
+    }
 
     // ── Set up SSE stream ───────────────────────────────
     const encoder = new TextEncoder();
@@ -307,15 +328,48 @@ export async function POST(request: NextRequest) {
         while (loopCount < MAX_TOOL_LOOPS) {
           loopCount++;
 
-          const step = await runAgenticStep(
-            chatMessages,
-            tools,
-            effectiveModel,
-            effectiveTemperature,
-            effectiveMaxTokens,
-            sessionId,
-            sendSSE,
-          );
+          // ── Run agentic step with responsive compression fallback ──
+          let step;
+          try {
+            step = await runAgenticStep(
+              chatMessages,
+              tools,
+              effectiveModel,
+              effectiveTemperature,
+              effectiveMaxTokens,
+              sessionId,
+              sendSSE,
+            );
+          } catch (stepErr) {
+            const errMsg = stepErr instanceof Error ? stepErr.message : String(stepErr);
+            if (errMsg.includes('prompt') && (errMsg.includes('too long') || errMsg.includes('maximum'))) {
+              console.log('[compression] Responsive compression triggered by prompt-too-long error');
+              const compResult = await compressMessages(
+                chatMessages.filter(m => m.role !== 'system'),
+                DEFAULT_COMPRESSION_CONFIG,
+                { force: 'responsive' }
+              );
+              chatMessages = [
+                chatMessages[0], // keep enhanced system prompt
+                ...compResult.messages.map(m => ({
+                  role: m.role as 'user' | 'assistant' | 'system' | 'tool',
+                  content: m.content,
+                })),
+              ];
+              console.log(`[compression] Responsive compressed ${compResult.compressedCount} messages, ratio: ${(compResult.ratio * 100).toFixed(0)}%`);
+              step = await runAgenticStep(
+                chatMessages,
+                tools,
+                effectiveModel,
+                effectiveTemperature,
+                effectiveMaxTokens,
+                sessionId,
+                sendSSE,
+              );
+            } else {
+              throw stepErr;
+            }
+          }
 
           // Track usage
           if (step.usage) {
@@ -356,6 +410,16 @@ export async function POST(request: NextRequest) {
           console.log(
             `[agentic] Loop ${loopCount}: ${step.toolCalls.length} tool call(s), continuing...`
           );
+        }
+
+        // ── Extract memories from conversation (fire-and-forget) ──
+        try {
+          const memoryResult = await processConversationForMemory(sessionId, chatMessages);
+          if (memoryResult.sessionMemories > 0 || memoryResult.memdirEntries > 0) {
+            console.log(`[memory] Extracted ${memoryResult.sessionMemories} session memories, ${memoryResult.memdirEntries} memdir entries`);
+          }
+        } catch (memErr) {
+          console.error('[memory] Failed to extract memories:', memErr);
         }
 
         // ── Stream final content to client ─────────────
