@@ -33,6 +33,13 @@ import {
   Layers,
   ArrowLeftRight,
   Loader2,
+  Info,
+  Users,
+  Network,
+  UserCheck,
+  ChevronDown,
+  Minus,
+  PlusCircle,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -96,6 +103,43 @@ const templateColorMap: Record<string, string> = {
 // ────────────────────────────────────────────
 
 type AgenticPhase = 'idle' | 'thinking' | 'executing_tools' | 'generating' | 'compressing';
+
+// ────────────────────────────────────────────
+// Multi-Agent Status Types
+// ────────────────────────────────────────────
+
+type MultiAgentMode = 'coordinator' | 'swarm' | 'teammate';
+
+interface MultiAgentAgentInfo {
+  id: string;
+  name: string;
+  status: 'spawning' | 'thinking' | 'executing' | 'done' | 'failed';
+  tokens?: { input: number; output: number };
+  result?: string;
+  error?: string;
+}
+
+interface MultiAgentState {
+  phase: 'idle' | 'spawning' | 'executing' | 'aggregating' | 'done';
+  mode: MultiAgentMode | null;
+  agents: MultiAgentAgentInfo[];
+  totalAgents: number;
+  completedAgents: number;
+  totalTokens: number;
+  configOpen: boolean;
+  workerCount: number;
+}
+
+const defaultMultiAgentState: MultiAgentState = {
+  phase: 'idle',
+  mode: null,
+  agents: [],
+  totalAgents: 0,
+  completedAgents: 0,
+  totalTokens: 0,
+  configOpen: false,
+  workerCount: 3,
+};
 
 interface AgenticStatus {
   phase: AgenticPhase;
@@ -182,8 +226,10 @@ export function ChatView() {
     addSession,
     setActiveSession,
     deleteSession,
+    updateSession,
     setSessions,
     setMessagesForSession,
+    messagesMap,
     agentConfig,
     setAgentConfig,
     streamingMessageId,
@@ -200,9 +246,17 @@ export function ChatView() {
   const [sessionPanelOpen, setSessionPanelOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
+  // Session panel enhancement states
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [renameTitle, setRenameTitle] = useState('');
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+  const [clearAllConfirm, setClearAllConfirm] = useState(false);
+  const renameInputRef = useRef<HTMLInputElement>(null);
   const [agenticStatus, setAgenticStatus] = useState<AgenticStatus>({ phase: 'idle' });
   const [streamingCharsPerSec, setStreamingCharsPerSec] = useState<number | null>(null);
   const [isTextareaFocused, setIsTextareaFocused] = useState(false);
+  const [multiAgent, setMultiAgent] = useState<MultiAgentState>(defaultMultiAgentState);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -682,11 +736,22 @@ export function ChatView() {
         const imageFile = attachedImage.file;
         setAttachedImage(null);
         await sendImageToAPI(trimmed, imageFile);
+      } else if (isMultiAgentMode) {
+        await sendToMultiAgentAPI(trimmed, sessionId);
       } else {
         await sendToAPI(trimmed, sessionId);
       }
+
+      // ── Auto-title new session on first message ──
+      if (sessionId) {
+        const sessionMsgs = useChatStore.getState().messagesMap[sessionId];
+        if (!sessionMsgs || sessionMsgs.length === 0) {
+          // This is the first message in the session
+          autoTitleSession(sessionId, trimmed);
+        }
+      }
     },
-    [input, isLoading, activeSessionId, addMessage, sendToAPI, sendImageToAPI, attachedImage, selectedModel, agentConfig, addSession]
+    [input, isLoading, activeSessionId, addMessage, sendToAPI, sendImageToAPI, attachedImage, selectedModel, agentConfig, addSession, autoTitleSession]
   );
 
   const handleKeyDown = useCallback(
@@ -796,21 +861,6 @@ export function ChatView() {
     }
   }, [addSession, selectedModel, agentConfig]);
 
-  const handleDeleteSession = useCallback(
-    (e: React.MouseEvent, id: string) => {
-      e.stopPropagation();
-      deleteSession(id);
-      // Delete from DB (fire-and-forget)
-      fetch('/api/sessions', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
-      }).catch(() => {});
-      toast.success('Session deleted');
-    },
-    [deleteSession]
-  );
-
   const handleSwitchSession = useCallback(
     async (id: string) => {
       // Check if messages are already cached in the messagesMap
@@ -888,6 +938,148 @@ export function ChatView() {
     [activeSessionId, addSession, selectedModel, agentConfig]
   );
 
+  // ── Session Rename Handler ─────────────────
+  const handleStartRename = useCallback(
+    (e: React.MouseEvent, session: Session) => {
+      e.stopPropagation();
+      setRenamingSessionId(session.id);
+      setRenameTitle(session.title);
+      setExpandedSessionId(null);
+      setTimeout(() => renameInputRef.current?.focus(), 50);
+    },
+    []
+  );
+
+  const handleFinishRename = useCallback(
+    async (id: string) => {
+      const trimmed = renameTitle.trim();
+      if (!trimmed) {
+        setRenamingSessionId(null);
+        return;
+      }
+      // Find original session to check if title changed
+      const session = useChatStore.getState().sessions.find(s => s.id === id);
+      if (session && session.title === trimmed) {
+        setRenamingSessionId(null);
+        return;
+      }
+      // Update via API
+      try {
+        const res = await fetch(`/api/sessions/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: trimmed }),
+        });
+        const data = await res.json();
+        if (data.error) {
+          toast.error('Failed to rename session');
+        } else {
+          updateSession(id, { title: trimmed, updatedAt: data.updatedAt || new Date().toISOString() });
+          toast.success('Session renamed');
+        }
+      } catch {
+        toast.error('Failed to rename session');
+      }
+      setRenamingSessionId(null);
+    },
+    [renameTitle, updateSession]
+  );
+
+  const handleCancelRename = useCallback(() => {
+    setRenamingSessionId(null);
+    setRenameTitle('');
+  }, []);
+
+  const handleRenameKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLInputElement>, id: string) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleFinishRename(id);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        handleCancelRename();
+      }
+    },
+    [handleFinishRename, handleCancelRename]
+  );
+
+  // ── Delete Confirmation Handler ────────────
+  const handleDeleteClick = useCallback(
+    (e: React.MouseEvent, id: string) => {
+      e.stopPropagation();
+      if (confirmingDeleteId === id) {
+        // Second click — actually delete
+        deleteSession(id);
+        fetch('/api/sessions', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id }),
+        }).catch(() => {});
+        setConfirmingDeleteId(null);
+        setExpandedSessionId(null);
+        toast.success('Session deleted');
+      } else {
+        // First click — show confirmation
+        setConfirmingDeleteId(id);
+        // Auto-reset after 3 seconds
+        setTimeout(() => {
+          setConfirmingDeleteId((prev) => (prev === id ? null : prev));
+        }, 3000);
+      }
+    },
+    [confirmingDeleteId, deleteSession]
+  );
+
+  // ── Clear All Sessions Handler ─────────────
+  const handleClearAll = useCallback(async () => {
+    if (!clearAllConfirm) {
+      setClearAllConfirm(true);
+      setTimeout(() => setClearAllConfirm(false), 3000);
+      return;
+    }
+    // Delete all sessions from DB
+    for (const session of sessions) {
+      fetch('/api/sessions', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: session.id }),
+      }).catch(() => {});
+    }
+    // Clear local state
+    useChatStore.setState({
+      sessions: [],
+      activeSessionId: null,
+      messages: [],
+      messagesMap: {},
+      activeView: 'dashboard' as const,
+    });
+    setClearAllConfirm(false);
+    toast.success('All sessions cleared');
+  }, [clearAllConfirm, sessions]);
+
+  // ── Auto-title handler ─────────────────────
+  const autoTitleSession = useCallback(
+    async (sessionId: string, firstMessage: string) => {
+      const title = firstMessage.length > 50
+        ? firstMessage.slice(0, 47) + '...'
+        : firstMessage;
+      try {
+        const res = await fetch(`/api/sessions/${sessionId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title }),
+        });
+        const data = await res.json();
+        if (!data.error) {
+          updateSession(sessionId, { title: data.title || title, updatedAt: data.updatedAt || new Date().toISOString() });
+        }
+      } catch {
+        // silently fail — title update is non-critical
+      }
+    },
+    [updateSession]
+  );
+
   const modelLabel = selectedModel || agentConfig.activeModel || 'Default';
   const shortModelName = modelLabel.split('/').pop() || modelLabel;
 
@@ -916,6 +1108,184 @@ export function ChatView() {
     ultraplan: 'border-indigo-500/20 bg-indigo-500/10',
     dream: 'border-pink-500/20 bg-pink-500/10',
   };
+
+  // ── Multi-Agent helpers ─────────────────
+  const isMultiAgentMode = activeMode === 'coordinator' || activeMode === 'swarm' || activeMode === 'teammate';
+  const isMultiAgentExecuting = multiAgent.phase === 'spawning' || multiAgent.phase === 'executing' || multiAgent.phase === 'aggregating';
+
+  const multiAgentModeConfig: Record<string, { label: string; icon: LucideIcon; colorClass: string; bgColor: string; borderColor: string; defaultCount: number; minCount: number; maxCount: number; countLabel: string }> = {
+    coordinator: { label: 'Coordinator', icon: Users, colorClass: 'text-orange-400', bgColor: 'bg-orange-500/5', borderColor: 'border-orange-500/20', defaultCount: 3, minCount: 1, maxCount: 6, countLabel: 'Workers' },
+    swarm: { label: 'Swarm', icon: Network, colorClass: 'text-red-400', bgColor: 'bg-red-500/5', borderColor: 'border-red-500/20', defaultCount: 3, minCount: 2, maxCount: 6, countLabel: 'Agents' },
+    teammate: { label: 'Teammate', icon: UserCheck, colorClass: 'text-cyan-400', bgColor: 'bg-cyan-500/5', borderColor: 'border-cyan-500/20', defaultCount: 1, minCount: 1, maxCount: 1, countLabel: '' },
+  };
+
+  const sendToMultiAgentAPI = useCallback(
+    async (userMessage: string, sessionId: string) => {
+      const mode = activeMode as MultiAgentMode;
+      if (!mode || !isMultiAgentMode) return;
+
+      setLoading(true);
+      const config = multiAgentModeConfig[mode];
+
+      const streamMsgId = `msg-stream-${Date.now()}`;
+      const streamMsg: Message = {
+        id: streamMsgId,
+        sessionId,
+        role: 'assistant',
+        content: '',
+        toolCalls: null,
+        toolCallsDisplay: null,
+        toolResults: null,
+        tokens: 0,
+        createdAt: new Date().toISOString(),
+        isStreaming: true,
+      };
+      addMessage(streamMsg);
+      setStreamingMessageId(streamMsgId);
+
+      const agentCount = mode === 'teammate' ? 1 : multiAgent.workerCount;
+      setMultiAgent({
+        phase: 'spawning',
+        mode,
+        agents: mode === 'teammate'
+          ? [{ id: 'teammate', name: 'Teammate', status: 'spawning' }]
+          : Array.from({ length: agentCount }, (_, i) => ({
+              id: `pending-${i}`,
+              name: `${config.label} ${i + 1}`,
+              status: 'spawning' as const,
+            })),
+        totalAgents: agentCount + (mode === 'teammate' ? 0 : 1),
+        completedAgents: 0,
+        totalTokens: 0,
+        configOpen: false,
+        workerCount: multiAgent.workerCount,
+      });
+
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      try {
+        const apiUrl = mode === 'coordinator' ? '/api/agents/coordinator' : '/api/agents/swarm';
+
+        const res = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            task: userMessage,
+            model: selectedModel || agentConfig.activeModel,
+            sessionId,
+            ...(mode === 'coordinator' ? { numWorkers: agentCount } : { agentCount }),
+          }),
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || 'Multi-agent request failed');
+        }
+
+        let fullContent = '';
+        const reader = res.body?.getReader();
+        const decoder = new TextDecoder();
+
+        if (reader) {
+          let buffer = '';
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed || !trimmed.startsWith('data: ')) continue;
+              const payload = trimmed.slice(6);
+              if (payload === '[DONE]') continue;
+
+              try {
+                const data = JSON.parse(payload);
+                if (data.error) throw new Error(data.error);
+
+                if (data.type === 'agent_spawned') {
+                  setMultiAgent(prev => {
+                    const agents = [...prev.agents];
+                    const idx = data.agentIndex ?? agents.length - 1;
+                    if (agents[idx]) {
+                      agents[idx] = { ...agents[idx], id: data.agentId || agents[idx].id, name: data.agentName || agents[idx].name, status: 'thinking' };
+                    }
+                    return { ...prev, phase: 'executing' as const, agents };
+                  });
+                  continue;
+                }
+
+                if (data.type === 'task_assigned' || data.type === 'agent_status') {
+                  setMultiAgent(prev => ({
+                    ...prev,
+                    agents: prev.agents.map(a =>
+                      a.id === data.agentId
+                        ? { ...a, status: (data.status || 'executing') as MultiAgentAgentInfo['status'] }
+                        : a
+                    ),
+                  }));
+                  continue;
+                }
+
+                if (data.type === 'agent_result') {
+                  setMultiAgent(prev => ({
+                    ...prev,
+                    agents: prev.agents.map(a =>
+                      a.id === data.agentId
+                        ? { ...a, status: (data.status === 'failed' ? 'failed' : 'done') as MultiAgentAgentInfo['status'], result: data.result, error: data.error, tokens: data.tokens }
+                        : a
+                    ),
+                    completedAgents: data.completedAgents || prev.completedAgents + 1,
+                  }));
+                  continue;
+                }
+
+                if (data.type === 'aggregation_start') {
+                  setMultiAgent(prev => ({ ...prev, phase: 'aggregating' as const }));
+                  continue;
+                }
+
+                if (data.type === 'aggregation_complete') {
+                  setMultiAgent(prev => ({ ...prev, phase: 'done' as const, totalTokens: data.totalTokens || 0 }));
+                  continue;
+                }
+
+                if (data.content) {
+                  fullContent += data.content;
+                  updateMessage(streamMsgId, { content: fullContent });
+                }
+                if (data.done) {
+                  updateMessage(streamMsgId, { isStreaming: false, tokens: data.tokens || 0 });
+                }
+              } catch (parseErr) {
+                if (parseErr instanceof Error && parseErr.message && !parseErr.message.includes('JSON')) throw parseErr;
+              }
+            }
+          }
+        }
+
+        if (!fullContent) {
+          updateMessage(streamMsgId, { content: 'No response from multi-agent system.', isStreaming: false });
+        }
+      } catch (err) {
+        if (controller.signal.aborted) {
+          updateMessage(streamMsgId, { isStreaming: false });
+        } else {
+          updateMessage(streamMsgId, { content: `Multi-agent error: ${err instanceof Error ? err.message : 'Unknown error'}`, isStreaming: false });
+        }
+        setMultiAgent(prev => ({ ...prev, phase: 'done' }));
+      } finally {
+        abortControllerRef.current = null;
+        setStreamingMessageId(null);
+        setLoading(false);
+      }
+    },
+    [activeMode, isMultiAgentMode, multiAgent.workerCount, setLoading, addMessage, setStreamingMessageId, updateMessage, selectedModel, agentConfig]
+  );
 
   const hasInput = input.trim().length > 0 || attachedImage !== null;
   const showCharCount = input.length > 200;
@@ -998,52 +1368,167 @@ export function ChatView() {
             </div>
           ) : (
             <div className="space-y-1 py-1">
-              {filteredSessions.map((session) => (
-                <button
-                  key={session.id}
-                  className={cn(
-                    'group flex w-full items-start gap-2.5 rounded-lg px-3 py-2.5 text-left transition-all hover:bg-zinc-800/60',
-                    session.id === activeSessionId &&
-                      'bg-emerald-500/10 ring-1 ring-emerald-500/20'
-                  )}
-                  onClick={() => handleSwitchSession(session.id)}
-                >
-                  <div className="mt-0.5 min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={cn(
-                          'h-1.5 w-1.5 shrink-0 rounded-full',
-                          session.id === activeSessionId
-                            ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]'
-                            : 'bg-zinc-600'
-                        )}
-                      />
-                      <span className="truncate text-xs font-medium text-foreground">
-                        {session.title}
-                      </span>
-                    </div>
-                    <div className="mt-1 flex items-center gap-2 pl-3.5">
-                      <span className="text-[10px] text-muted-foreground/60">
-                        {formatDistanceToNow(new Date(session.updatedAt), {
-                          addSuffix: true,
-                        })}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground/40">
-                        {session.tokenCount.toLocaleString()} tokens
-                      </span>
-                    </div>
-                  </div>
-                  <button
-                    onClick={(e) => handleDeleteSession(e, session.id)}
-                    className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+              {filteredSessions.map((session) => {
+                const isExpanded = expandedSessionId === session.id;
+                const isRenaming = renamingSessionId === session.id;
+                const isConfirmingDelete = confirmingDeleteId === session.id;
+                const sessionMsgs = messagesMap[session.id];
+                const msgCount = sessionMsgs?.length ?? 0;
+                const totalTokens = sessionMsgs?.reduce((acc, m) => acc + m.tokens, 0) ?? session.tokenCount;
+
+                return (
+                  <div
+                    key={session.id}
+                    className={cn(
+                      'group rounded-lg transition-all',
+                      session.id === activeSessionId &&
+                        'bg-emerald-500/10 ring-1 ring-emerald-500/20'
+                    )}
                   >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
-                </button>
-              ))}
+                    {/* Session Row */}
+                    <div
+                      className="flex items-start gap-2.5 rounded-lg px-3 py-2.5 text-left transition-all hover:bg-zinc-800/60 cursor-pointer"
+                      onClick={() => handleSwitchSession(session.id)}
+                    >
+                      <div className="mt-0.5 min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <div
+                            className={cn(
+                              'h-1.5 w-1.5 shrink-0 rounded-full',
+                              session.id === activeSessionId
+                                ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]'
+                                : 'bg-zinc-600'
+                            )}
+                          />
+                          {isRenaming ? (
+                            <input
+                              ref={renameInputRef}
+                              type="text"
+                              value={renameTitle}
+                              onChange={(e) => setRenameTitle(e.target.value)}
+                              onKeyDown={(e) => handleRenameKeyDown(e, session.id)}
+                              onBlur={() => handleFinishRename(session.id)}
+                              className="min-w-0 flex-1 bg-zinc-800/80 rounded px-1.5 py-0.5 text-xs font-medium text-foreground border border-emerald-500/30 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          ) : (
+                            <span
+                              className="truncate text-xs font-medium text-foreground"
+                              onDoubleClick={(e) => handleStartRename(e, session)}
+                              title="Double-click to rename"
+                            >
+                              {session.title}
+                            </span>
+                          )}
+                        </div>
+                        {!isRenaming && (
+                          <div className="mt-1 flex items-center gap-2 pl-3.5">
+                            <span className="text-[10px] text-muted-foreground/60">
+                              {formatDistanceToNow(new Date(session.updatedAt), {
+                                addSuffix: true,
+                              })}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground/40">
+                              {session.tokenCount.toLocaleString()} tokens
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      {/* Action buttons */}
+                      <div className="mt-0.5 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                        {/* Info toggle */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedSessionId(isExpanded ? null : session.id);
+                            if (renamingSessionId === session.id) setRenamingSessionId(null);
+                          }}
+                          className={cn(
+                            'flex h-6 w-6 items-center justify-center rounded-md transition-colors',
+                            isExpanded
+                              ? 'text-emerald-400 bg-emerald-500/10'
+                              : 'text-muted-foreground/60 hover:bg-zinc-700/60 hover:text-foreground'
+                          )}
+                          title="Session info"
+                        >
+                          <Info className="h-3 w-3" />
+                        </button>
+                        {/* Delete / Confirm */}
+                        {isConfirmingDelete ? (
+                          <button
+                            onClick={(e) => handleDeleteClick(e, session.id)}
+                            className="flex h-6 items-center justify-center rounded-md bg-destructive/20 px-1.5 text-[10px] font-medium text-destructive hover:bg-destructive/30 transition-colors"
+                          >
+                            Confirm?
+                          </button>
+                        ) : (
+                          <button
+                            onClick={(e) => handleDeleteClick(e, session.id)}
+                            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/60 hover:bg-destructive/10 hover:text-destructive transition-colors"
+                            title="Delete session"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {/* Expanded Info Area */}
+                    <AnimatePresence>
+                      {isExpanded && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.2 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="mx-3 mb-2 rounded-md bg-zinc-900/60 border border-border/30 px-3 py-2 space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] text-muted-foreground/50">Model</span>
+                              <span className="text-[10px] font-mono text-emerald-400/80">{session.model.split('/').pop()}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] text-muted-foreground/50">Created</span>
+                              <span className="text-[10px] text-foreground/70">
+                                {new Date(session.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] text-muted-foreground/50">Messages</span>
+                              <span className="text-[10px] text-foreground/70">{msgCount}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] text-muted-foreground/50">Total Tokens</span>
+                              <span className="text-[10px] text-foreground/70">{totalTokens.toLocaleString()}</span>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
+
+        {/* Clear All Sessions (only visible when sessions exist) */}
+        {sessionsLoaded && sessions.length > 0 && (
+          <div className="border-t border-border/50 px-3 py-2">
+            <button
+              onClick={handleClearAll}
+              className={cn(
+                'flex w-full items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-medium transition-all',
+                clearAllConfirm
+                  ? 'bg-destructive/20 text-destructive hover:bg-destructive/30'
+                  : 'text-muted-foreground/60 hover:text-destructive/80 hover:bg-destructive/5'
+              )}
+            >
+              <Trash2 className="h-3 w-3" />
+              {clearAllConfirm ? 'Click again to clear all' : 'Clear All Sessions'}
+            </button>
+          </div>
+        )}
 
         {/* Templates Section */}
         <div className="border-t border-border/50 px-3 py-3" data-templates-section>
@@ -1189,6 +1674,184 @@ export function ChatView() {
             )}
           </div>
         </div>
+
+        {/* ─── Multi-Agent Status Panel ─── */}
+        <AnimatePresence>
+          {isMultiAgentMode && (multiAgent.phase !== 'idle' || multiAgent.agents.length > 0) && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.25 }}
+              className="overflow-hidden"
+            >
+              {(() => {
+                const config = multiAgentModeConfig[activeMode];
+                if (!config) return null;
+                const ModeIcon = config.icon;
+                const progressPct = multiAgent.totalAgents > 0
+                  ? Math.round((multiAgent.completedAgents / (multiAgent.totalAgents - 1)) * 100)
+                  : 0;
+
+                const agentStatusConfig: Record<string, { label: string; color: string; icon: string }> = {
+                  spawning: { label: 'Spawning', color: 'text-amber-400', icon: '⏳' },
+                  thinking: { label: 'Thinking', color: 'text-amber-400', icon: '🧠' },
+                  executing: { label: 'Executing', color: 'text-sky-400', icon: '⚙️' },
+                  done: { label: 'Done', color: 'text-emerald-400', icon: '✅' },
+                  failed: { label: 'Failed', color: 'text-red-400', icon: '❌' },
+                };
+
+                return (
+                  <div className={cn(
+                    'border-b px-4 py-3',
+                    config.bgColor,
+                    config.borderColor,
+                  )}>
+                    {/* Header row */}
+                    <div className="flex items-center gap-2 mb-2">
+                      <ModeIcon className={cn('h-4 w-4', config.colorClass)} />
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          'gap-1 text-[10px] font-semibold',
+                          config.borderColor,
+                          config.bgColor,
+                          config.colorClass,
+                        )}
+                      >
+                        {config.label} Mode
+                      </Badge>
+                      {multiAgent.totalAgents > 0 && (
+                        <Badge
+                          variant="outline"
+                          className="gap-1 border-zinc-700/50 bg-zinc-800/50 text-[10px] text-zinc-400"
+                        >
+                          {multiAgent.totalAgents} agents
+                        </Badge>
+                      )}
+                      {isMultiAgentExecuting && (
+                        <Loader2 className="ml-auto h-3 w-3 animate-spin text-muted-foreground/50" />
+                      )}
+                      {multiAgent.phase === 'done' && multiAgent.totalTokens > 0 && (
+                        <span className="ml-auto text-[10px] text-muted-foreground/50">
+                          {multiAgent.totalTokens.toLocaleString()} tokens
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Progress bar */}
+                    {isMultiAgentExecuting && multiAgent.totalAgents > 1 && (
+                      <div className="mb-2 h-1 w-full rounded-full bg-zinc-800/80 overflow-hidden">
+                        <motion.div
+                          className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400"
+                          initial={{ width: 0 }}
+                          animate={{ width: `${progressPct}%` }}
+                          transition={{ duration: 0.4, ease: 'easeOut' }}
+                        />
+                      </div>
+                    )}
+
+                    {/* Phase indicator */}
+                    {isMultiAgentExecuting && (
+                      <div className="mb-2 flex items-center gap-1.5">
+                        <span className="text-[10px] text-muted-foreground/60">
+                          {multiAgent.phase === 'spawning' && 'Spawning agents...'}
+                          {multiAgent.phase === 'executing' && `Executing ${multiAgent.completedAgents}/${multiAgent.totalAgents - 1} agents...`}
+                          {multiAgent.phase === 'aggregating' && 'Aggregating results...'}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Agent list */}
+                    <AnimatePresence>
+                      <motion.div
+                        key="agent-list"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="space-y-1"
+                      >
+                        {multiAgent.agents.map((agent) => {
+                          const statusCfg = agentStatusConfig[agent.status] || agentStatusConfig.spawning;
+                          const tokenTotal = agent.tokens ? agent.tokens.input + agent.tokens.output : 0;
+                          return (
+                            <motion.div
+                              key={agent.id}
+                              initial={{ opacity: 0, x: -10 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ duration: 0.2 }}
+                              className="flex items-center gap-2 rounded-lg bg-zinc-900/60 px-2.5 py-1.5"
+                            >
+                              <span className="text-xs">{statusCfg.icon}</span>
+                              <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground">
+                                {agent.name}
+                              </span>
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  'shrink-0 gap-0.5 border-border/30 px-1.5 py-0 text-[9px]',
+                                  statusCfg.color,
+                                  agent.status === 'executing' && 'animate-pulse',
+                                )}
+                              >
+                                {statusCfg.label}
+                              </Badge>
+                              {tokenTotal > 0 && (
+                                <span className="shrink-0 text-[9px] tabular-nums text-muted-foreground/40">
+                                  {tokenTotal.toLocaleString()}t
+                                </span>
+                              )}
+                            </motion.div>
+                          );
+                        })}
+                      </motion.div>
+                    </AnimatePresence>
+
+                    {/* Worker count selector (only show when idle and not executing) */}
+                    {!isMultiAgentExecuting && multiAgent.phase === 'idle' && config.countLabel && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <span className="text-[10px] text-muted-foreground/60">{config.countLabel}:</span>
+                        <button
+                          type="button"
+                          className="flex h-5 w-5 items-center justify-center rounded-md border border-zinc-700/50 bg-zinc-800/50 text-zinc-400 hover:border-zinc-600 hover:text-zinc-300 transition-colors"
+                          onClick={() => setMultiAgent(prev => ({
+                            ...prev,
+                            workerCount: Math.max(config.minCount, prev.workerCount - 1),
+                          }))}
+                          disabled={multiAgent.workerCount <= config.minCount}
+                        >
+                          <Minus className="h-2.5 w-2.5" />
+                        </button>
+                        <span className="w-4 text-center text-xs font-semibold text-foreground">{multiAgent.workerCount}</span>
+                        <button
+                          type="button"
+                          className="flex h-5 w-5 items-center justify-center rounded-md border border-zinc-700/50 bg-zinc-800/50 text-zinc-400 hover:border-zinc-600 hover:text-zinc-300 transition-colors"
+                          onClick={() => setMultiAgent(prev => ({
+                            ...prev,
+                            workerCount: Math.min(config.maxCount, prev.workerCount + 1),
+                          }))}
+                          disabled={multiAgent.workerCount >= config.maxCount}
+                        >
+                          <PlusCircle className="h-2.5 w-2.5" />
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Dismiss button when done */}
+                    {multiAgent.phase === 'done' && (
+                      <button
+                        type="button"
+                        onClick={() => setMultiAgent(defaultMultiAgentState)}
+                        className="mt-2 text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                      >
+                        Dismiss
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Messages Area */}
         <div className="flex-1 overflow-hidden">

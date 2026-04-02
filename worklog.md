@@ -1253,3 +1253,117 @@ Optimize Agent chat interaction experience on the FRONTEND only — fix session 
 - No backend files modified
 - No new packages installed
 - Uses existing lucide-react icons: Loader2, Wrench, BrainCircuit, Code2, Search
+---
+Task ID: chat-ux-optimize
+Agent: Main Orchestrator
+Task: Delete my-project Vercel project + Optimize Agent chat interaction
+
+Work Log:
+- Deleted my-project Vercel project (prj_Ul2wPUNf2n3Ydpi0zCpdqodesGVn) via API
+- Analyzed current chat interaction issues (5 critical UX problems identified)
+- Dispatched 2 parallel subagents for frontend and backend optimization
+- Frontend agent optimized ChatView.tsx and MessageBubble.tsx (6 major fixes)
+- Backend agent optimized stream/route.ts (streaming + SSE events)
+- Verified: lint 0 errors, build success, Vercel deployment READY
+- Commit 17e4204 pushed to master
+
+Stage Summary:
+- my-project Vercel project deleted, only code-bot remains
+- ChatView: input always visible, auto-create session, AbortController, agentic status bar, premium input design
+- MessageBubble: enhanced WelcomeState with V3 capability cards, Chinese quick actions
+- Backend: paragraph-based streaming (no fake delays), loop_iteration events, compression status events, enhanced meta
+- 4 files changed, +842 lines, -274 lines
+- Vercel deployment: READY
+
+---
+## Task ID: 6
+### Agent: Session CRUD Completer
+### Work Task
+Complete Session CRUD — Add PUT /api/sessions/[id] backend handler and enhance session panel frontend with rename, delete confirmation, session info, clear all, and auto-title features.
+
+### Work Summary
+
+**Part 1 — Backend: PUT /api/sessions/[id]** (`src/app/api/sessions/[id]/route.ts`):
+- Added `ALLOWED_UPDATE_FIELDS` constant: `['title', 'model', 'systemPrompt', 'isActive', 'mode']`
+- Added `PUT` handler with partial update logic:
+  - Filters request body to only allowed fields
+  - Returns 400 if no valid fields provided
+  - Verifies session exists before update (returns 404 if not)
+  - Uses `db.session.update()` with filtered data
+  - Returns updated session JSON
+  - Error handling with proper error messages
+
+**Part 2 — Frontend: Session Panel Enhancements** (`src/components/codebot/ChatView.tsx`):
+
+1. **Session Rename (double-click inline edit)**:
+   - Added states: `renamingSessionId`, `renameTitle`, `renameInputRef`
+   - `handleStartRename`: sets renaming state on double-click, auto-focuses input
+   - `handleFinishRename`: validates title, calls `PUT /api/sessions/[id]`, updates Zustand store via `updateSession`, shows toast
+   - `handleCancelRename`: resets state on Escape
+   - `handleRenameKeyDown`: Enter to save, Escape to cancel
+   - onBlur auto-saves rename changes
+
+2. **Delete Confirmation (inline confirm with auto-reset)**:
+   - Added state: `confirmingDeleteId`
+   - `handleDeleteClick`: first click shows "Confirm?" button (red bg), second click actually deletes
+   - Auto-resets after 3 seconds via `setTimeout`
+   - Replaced old `handleDeleteSession` with this confirmation-based approach
+
+3. **Session Info (expandable area)**:
+   - Added state: `expandedSessionId`
+   - Info button (ℹ icon) toggles expand/collapse per session
+   - Expanded area shows: Model (short name), Created date, Message count, Total tokens
+   - Uses Framer Motion `AnimatePresence` for smooth height animation
+   - Message count and total tokens computed from `messagesMap` cache
+
+4. **Clear All Sessions**:
+   - Added state: `clearAllConfirm`
+   - Button visible between session list and templates (only when sessions exist)
+   - First click: shows "Click again to clear all" (red styling)
+   - Second click: deletes all sessions from DB and clears local Zustand state
+   - Auto-resets after 3 seconds
+
+5. **Auto-title after first user message**:
+   - `autoTitleSession`: truncates first message to 50 chars (with "..." for longer)
+   - Called from `handleSend` when `messagesMap[sessionId]` is empty (first message)
+   - Uses `PUT /api/sessions/[id]` to persist title
+   - Updates Zustand store via `updateSession`
+   - Silent failure (non-critical)
+
+**New Imports**:
+- Added `Info` icon from lucide-react
+- Added `updateSession`, `messagesMap` from chat store
+- Added `renameInputRef` ref
+
+**Verification**:
+- ESLint: 0 errors, 0 warnings
+- Dev server: compiling and serving successfully (200 responses)
+- No new packages installed
+- 2 files modified: `src/app/api/sessions/[id]/route.ts` (+66 lines), `src/components/codebot/ChatView.tsx` (+261 lines)
+
+---
+## Task ID: V4.0.0-multi-agent
+### Agent: Main Developer
+### Work Task
+Implement V4.0.0 Multi-Agent System - Coordinator + Swarm + Teammate modes with SSE streaming, task decomposition, result aggregation, and multi-agent status panel in ChatView.
+
+### Work Summary
+
+**7 new files created under `src/lib/agents/`:**
+
+1. **`protocol.ts`** (~100 lines) - Core type definitions for agent messages, tasks, SSE events, and in-memory message bus.
+2. **`task-decomposer.ts`** (~80 lines) - LLM-based task decomposition into parallel sub-tasks.
+3. **`result-aggregator.ts`** (~80 lines) - LLM-based result synthesis from multiple agent outputs.
+4. **`coordinator.ts`** (~250 lines) - Coordinator mode: decompose, spawn workers (max 3 concurrent), aggregate.
+5. **`swarm.ts`** (~200 lines) - Swarm mode: peer agents with diverse focus angles + consensus.
+6. **`teammate.ts`** (~100 lines) - Teammate mode: in-process assistant with shared context.
+7. **`index.ts`** - Barrel exports.
+
+**2 API routes rewritten for SSE streaming:**
+8. **`/api/agents/coordinator`** - SSE events: agent_spawned, task_assigned, agent_result, aggregation_complete.
+9. **`/api/agents/swarm`** - Same SSE pattern with confidence scoring.
+
+**1 UI file modified:**
+10. **`ChatView.tsx`** - Multi-agent status panel with mode badge, progress bar, agent list with status indicators, worker count selector. Routes to multi-agent APIs when activeMode is coordinator/swarm/teammate.
+
+**Verification:** ESLint 0 errors, dev server OK, no new packages.
