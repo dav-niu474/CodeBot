@@ -88,6 +88,7 @@ async function ensureDefaultTools() {
     await db.toolDef.createMany({
       data: DEFAULT_TOOLS.map((tool) => ({
         name: tool.name,
+        displayName: tool.name,
         description: tool.description,
         icon: tool.icon,
         category: tool.category,

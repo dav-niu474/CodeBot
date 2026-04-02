@@ -82,6 +82,7 @@ async function ensureDefaultSkills() {
     await db.skillDef.createMany({
       data: DEFAULT_SKILLS.map((skill) => ({
         name: skill.name,
+        displayName: skill.name,
         description: skill.description,
         icon: skill.icon,
         category: skill.category,
