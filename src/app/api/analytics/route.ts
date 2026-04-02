@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { Prisma } from '@prisma/client';
 
 // ── GET /api/analytics ────────────────────────────────────────────────
 // Returns token usage analytics: totals, model breakdown, daily usage, recent records
@@ -25,89 +26,115 @@ export async function GET() {
     const totalCost = totals._sum.cost ?? 0;
 
     // ── Distinct session count ───────────────────────────
-    const sessionCountResult = await db.$queryRaw<Array<{ count: bigint }>>`
-      SELECT COUNT(DISTINCT "sessionId")::int as count FROM "token_usages" WHERE "sessionId" IS NOT NULL
-    `;
-    const sessionCount = Number(sessionCountResult[0]?.count) || 0;
+    const sessionsWithUsage = await db.tokenUsage.findMany({
+      where: { sessionId: { not: null } },
+      select: { sessionId: true },
+      distinct: ['sessionId'],
+    });
+    const sessionCount = sessionsWithUsage.length;
 
     // ── Model breakdown (GROUP BY modelId) ──────────────
-    const modelBreakdownRaw = await db.$queryRaw<
-      Array<{
-        "modelId": string;
-        tokens: bigint;
-        inputTokens: bigint;
-        outputTokens: bigint;
-        sessions: bigint;
-      }>
-    >`
-      SELECT "modelId",
-             SUM("inputTokens" + "outputTokens") as tokens,
-             SUM("inputTokens") as "inputTokens",
-             SUM("outputTokens") as "outputTokens",
-             COUNT(DISTINCT "sessionId")::int as sessions
-      FROM "token_usages"
-      GROUP BY "modelId"
-      ORDER BY tokens DESC
-    `;
+    const allUsages = await db.tokenUsage.findMany({
+      select: {
+        modelId: true,
+        inputTokens: true,
+        outputTokens: true,
+        sessionId: true,
+        cost: true,
+      },
+    });
 
-    const modelBreakdown = modelBreakdownRaw.map((row) => ({
-      modelId: row.modelId,
-      tokens: Number(row.tokens) || 0,
-      inputTokens: Number(row.inputTokens) || 0,
-      outputTokens: Number(row.outputTokens) || 0,
-      sessions: Number(row.sessions) || 0,
-      percentage: totalTokens > 0 ? Math.round(((Number(row.tokens) || 0) / totalTokens) * 1000) / 10 : 0,
-    }));
+    // Group by modelId
+    const modelMap = new Map<string, {
+      modelId: string;
+      tokens: number;
+      inputTokens: number;
+      outputTokens: number;
+      sessions: Set<string>;
+    }>();
+
+    for (const u of allUsages) {
+      const existing = modelMap.get(u.modelId);
+      if (existing) {
+        existing.tokens += u.inputTokens + u.outputTokens;
+        existing.inputTokens += u.inputTokens;
+        existing.outputTokens += u.outputTokens;
+        if (u.sessionId) existing.sessions.add(u.sessionId);
+      } else {
+        modelMap.set(u.modelId, {
+          modelId: u.modelId,
+          tokens: u.inputTokens + u.outputTokens,
+          inputTokens: u.inputTokens,
+          outputTokens: u.outputTokens,
+          sessions: new Set(u.sessionId ? [u.sessionId] : []),
+        });
+      }
+    }
+
+    const modelBreakdown = Array.from(modelMap.values())
+      .sort((a, b) => b.tokens - a.tokens)
+      .map((m) => ({
+        modelId: m.modelId,
+        tokens: m.tokens,
+        inputTokens: m.inputTokens,
+        outputTokens: m.outputTokens,
+        sessions: m.sessions.size,
+        percentage: totalTokens > 0 ? Math.round((m.tokens / totalTokens) * 1000) / 10 : 0,
+      }));
 
     // ── Daily usage (last 7 days) ────────────────────────
-    const dailyUsageRaw = await db.$queryRaw<
-      Array<{
-        date: string;
-        tokens: bigint;
-        cost: number;
-      }>
-    >`
-      SELECT DATE("createdAt") as date,
-             SUM("inputTokens" + "outputTokens") as tokens,
-             SUM(cost) as cost
-      FROM "token_usages"
-      WHERE "createdAt" >= CURRENT_DATE - INTERVAL '7 days'
-      GROUP BY DATE("createdAt")
-      ORDER BY date ASC
-    `;
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
 
-    const dailyUsage = dailyUsageRaw.map((row) => ({
-      date: String(row.date),
-      tokens: Number(row.tokens) || 0,
-      cost: Number(row.cost) || 0,
-    }));
+    const recentUsages = await db.tokenUsage.findMany({
+      where: {
+        createdAt: { gte: sevenDaysAgo },
+      },
+      select: {
+        createdAt: true,
+        inputTokens: true,
+        outputTokens: true,
+        cost: true,
+      },
+    });
+
+    // Group by date
+    const dailyMap = new Map<string, { tokens: number; cost: number }>();
+    for (const u of recentUsages) {
+      const dateStr = u.createdAt.toISOString().split('T')[0];
+      const existing = dailyMap.get(dateStr);
+      if (existing) {
+        existing.tokens += u.inputTokens + u.outputTokens;
+        existing.cost += u.cost;
+      } else {
+        dailyMap.set(dateStr, {
+          tokens: u.inputTokens + u.outputTokens,
+          cost: u.cost,
+        });
+      }
+    }
+
+    const dailyUsage = Array.from(dailyMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, data]) => ({
+        date,
+        tokens: data.tokens,
+        cost: Math.round(data.cost * 100) / 100,
+      }));
 
     // ── Recent usage (last 20 records) ───────────────────
-    const recentUsageRaw = await db.$queryRaw<
-      Array<{
-        id: string;
-        "modelId": string;
-        tokens: bigint;
-        cost: number;
-        "createdAt": Date;
-      }>
-    >`
-      SELECT id,
-             "modelId",
-             ("inputTokens" + "outputTokens") as tokens,
-             cost,
-             "createdAt"
-      FROM "token_usages"
-      ORDER BY "createdAt" DESC
-      LIMIT 20
-    `;
+    const recentRecords = await db.tokenUsage.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    });
 
-    const recentUsage = recentUsageRaw.map((row) => ({
-      id: row.id,
-      modelId: row.modelId,
-      tokens: Number(row.tokens) || 0,
-      cost: Number(row.cost) || 0,
-      createdAt: row.createdAt.toISOString(),
+    const recentUsage = recentRecords.map((r) => ({
+      id: r.id,
+      modelId: r.modelId,
+      tokens: r.inputTokens + r.outputTokens,
+      cost: Math.round(r.cost * 100) / 100,
+      createdAt: r.createdAt.toISOString(),
     }));
 
     return NextResponse.json({

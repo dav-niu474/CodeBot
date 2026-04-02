@@ -46,6 +46,7 @@ export interface Message {
   tokens: number;
   createdAt: string;
   isStreaming?: boolean;
+  thinkingContent?: string | null;
 }
 
 /**

@@ -423,3 +423,99 @@ Stage Summary:
 - Vercel-ready: no standalone output, no file-based DB, postinstall hook
 - Git commit: 23a0e08 "feat: Vercel deployment support - migrate SQLite to PostgreSQL"
 - User needs to: set DATABASE_URL to PostgreSQL, run prisma db push
+---
+Task ID: 1
+Agent: Main Agent
+Task: Check all backend API endpoints work correctly and fix issues
+
+Work Log:
+- Read all 25 API route files in the project
+- Identified issues: (1) next.config.ts merge conflict causing server crash, (2) analytics route using PostgreSQL-specific raw SQL, (3) settings PUT handler missing fields (thinkingEnabled, activeModel, activeMode, nvidiaApiKey)
+- Switched Prisma schema to SQLite for local testing
+- Rewrote analytics route from raw PostgreSQL SQL to Prisma ORM queries (database-agnostic)
+- Fixed settings route PUT handler to accept all 13 configurable fields
+- Removed @db.Text annotations for SQLite testing
+- Generated Prisma client and pushed schema
+- Started dev server and tested all 25 API endpoints
+- Switched back to PostgreSQL schema with @db.Text annotations for production
+- Ran lint check - passed with no errors
+
+Stage Summary:
+- Fixed 3 bugs: merge conflict, analytics raw SQL, settings missing fields
+- All 25 API endpoints tested and verified working:
+  - ✅ GET /api, GET/POST/DELETE /api/sessions, GET /api/sessions/[id]
+  - ✅ GET/PUT /api/settings
+  - ✅ GET/POST/PUT /api/tools
+  - ✅ GET/POST/PUT /api/skills  
+  - ✅ GET/POST /api/models
+  - ✅ GET/POST/PUT/DELETE /api/memory, GET/POST /api/memory/compact, POST /api/memory/dream
+  - ✅ GET/POST/PUT/DELETE /api/agents, POST /api/agents/[id]/message
+  - ✅ POST /api/agents/coordinator, POST /api/agents/swarm
+  - ✅ GET /api/analytics (rewritten to use Prisma ORM)
+  - ✅ GET /api/git (status, log, branches, diff, stats)
+  - ✅ GET/POST /api/custom-models, DELETE/PATCH /api/custom-models/[id]
+  - ✅ POST /api/ai/code-analyze, POST /api/ai/web-search
+  - ✅ POST /api/chat (non-stream), POST /api/chat/stream
+- Prisma schema restored to PostgreSQL for production deployment
+- Lint passes cleanly
+
+---
+## Task ID: 5
+### Agent: Bug Fix Agent
+### Work Task
+Fix 3 bugs: (1) /api/models/test 404, (2) Chat streaming reasoning/tool_calls, (3) Session persistence
+
+### Work Summary
+
+**Bug 1 — /api/models/test returns 404**
+- Root cause: POST handler for model testing was defined in `src/app/api/models/route.ts` but the frontend (ModelHubView) was calling `/api/models/test` (a nested route)
+- Fix: Created new file `src/app/api/models/test/route.ts` with the POST handler extracted from the original models route
+- Removed the POST handler from `src/app/api/models/route.ts` (now GET-only)
+- Removed unused `chatCompletion` import from the models route
+
+**Bug 2 — Chat streaming should render thinking/reasoning and tool call processes**
+- Root cause: The streaming endpoint only forwarded `delta.content` chunks from NVIDIA's SSE stream, ignoring `delta.reasoning_content` and `delta.tool_calls`
+- Changes across 5 files:
+  1. **`src/lib/types.ts`**: Added `thinkingContent?: string | null` field to `Message` interface (Prisma schema already had `thinkingContent` column)
+  2. **`src/app/api/chat/stream/route.ts`**: 
+     - Client stream now extracts and forwards `delta.reasoning_content` as `{ reasoning: "..." }` SSE events
+     - Client stream now extracts and forwards `delta.tool_calls` as `{ tool_calls: [...] }` SSE events
+     - DB collection stream also captures `reasoning_content` for persistence
+     - Saves `thinkingContent` to the DB `Message` record
+     - Removed unused `ToolDefinition` import
+  3. **`src/components/codebot/ChatView.tsx`**: 
+     - Added `fullThinking` accumulator in `sendToAPI`
+     - Handles `data.reasoning` SSE events: accumulates and calls `updateMessage` with `thinkingContent`
+     - Handles `data.tool_calls` SSE events: accumulates as JSON string in `toolCalls` field
+     - Fixed pre-existing bug: `fullContent` was used before declaration in non-SSE path
+  4. **`src/components/codebot/MessageBubble.tsx`**:
+     - Added `ThinkingBlock` component: collapsible `<details>` element with amber styling, Brain icon, chevron rotation on open
+     - Added `ChevronDown` import
+     - Updated thinking indicator logic: shows `ThinkingIndicator` when streaming with no content AND no thinkingContent yet
+     - Shows `ThinkingBlock` when `message.thinkingContent` exists (both during and after streaming)
+     - `ThinkingBlock` uses `group-open/thinking` for Tailwind CSS group-based chevron rotation
+
+**Bug 3 — Historical sessions not persisted**
+- Root cause: Sessions were only stored in Zustand state (in-memory). Page refresh lost all sessions and messages.
+- Changes across 2 files:
+  1. **`src/store/chat-store.ts`**:
+     - Added `messagesMap: Record<string, Message[]>` state to store messages per session
+     - Added `setMessagesForSession(sessionId, messages)` action that updates both the map and current messages
+     - Updated `setActiveSession`: saves current messages to map before switching, loads new session's messages from map
+     - Updated `addSession`: initializes empty array in messagesMap for new session
+     - Updated `addMessage`, `updateMessage`, `setMessages`, `clearMessages`: all maintain messagesMap for the active session
+     - Updated `deleteSession`: removes session from messagesMap
+  2. **`src/components/codebot/ChatView.tsx`**:
+     - Added `sessionsLoaded` state for loading indicator
+     - Added `useEffect` on mount: fetches sessions from `GET /api/sessions` and populates store via `setSessions`
+     - Added loading spinner in session panel while sessions load
+     - Updated `handleNewChat`: now POSTs to `/api/sessions` to create session in DB, uses server-generated ID
+     - Updated `handleSwitchSession`: checks `messagesMap` cache first, then fetches messages from `GET /api/sessions/[id]` if not cached, populates via `setMessagesForSession`
+     - Updated `handleTemplateClick`: same API-based session creation as `handleNewChat`
+     - DB messages include `thinkingContent` field mapping from API response
+
+**Verification:**
+- ESLint: 0 errors, 0 warnings
+- Dev server: compiling and serving successfully (200 responses)
+- No new packages installed
+- 7 files modified/created: types.ts, models/route.ts, models/test/route.ts, chat/stream/route.ts, chat-store.ts, ChatView.tsx, MessageBubble.tsx

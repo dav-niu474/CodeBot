@@ -5,7 +5,6 @@ import {
   getDefaultModel,
   getModelInfo,
   type ChatMessage,
-  type ToolDefinition,
 } from "@/lib/nvidia";
 
 const SYSTEM_PROMPT =
@@ -117,6 +116,7 @@ export async function POST(request: NextRequest) {
       try {
         const reader = collectStream.getReader();
         let fullContent = "";
+        let fullThinkingContent = "";
         let usageData: {
           prompt_tokens: number;
           completion_tokens: number;
@@ -146,6 +146,10 @@ export async function POST(request: NextRequest) {
               if (delta?.content) {
                 fullContent += delta.content;
               }
+              // Collect reasoning content from reasoning models
+              if (delta?.reasoning_content) {
+                fullThinkingContent += delta.reasoning_content;
+              }
               if (parsed.usage) {
                 usageData = parsed.usage;
               }
@@ -170,6 +174,7 @@ export async function POST(request: NextRequest) {
               role: "assistant",
               content: fullContent,
               tokens: assistantTokens,
+              thinkingContent: fullThinkingContent.trim() || undefined,
             },
           });
 
@@ -198,7 +203,7 @@ export async function POST(request: NextRequest) {
           }
 
           console.log(
-            `[stream] Saved message (${assistantTokens} tokens) for session ${sessionId}`
+            `[stream] Saved message (${assistantTokens} tokens${fullThinkingContent ? `, ${fullThinkingContent.length} chars thinking` : ""}) for session ${sessionId}`
           );
         }
       } catch (err) {
@@ -207,8 +212,10 @@ export async function POST(request: NextRequest) {
     })();
 
     // Transform NVIDIA SSE format into a simple format the ChatView can parse:
-    //   data: {"content":"chunk text"}  — for content chunks
-    //   data: {"done":true,"tokens":123} — for stream end
+    //   data: {"content":"chunk text"}        — for content chunks
+    //   data: {"reasoning":"thinking text"}   — for reasoning/thinking chunks
+    //   data: {"tool_calls":[...]}            — for tool call invocations
+    //   data: {"done":true,"tokens":123}      — for stream end
     const transformedStream = new ReadableStream({
       async start(controller) {
         const reader = clientStream.getReader();
@@ -259,10 +266,30 @@ export async function POST(request: NextRequest) {
                 const parsed = JSON.parse(payload);
                 const delta = parsed.choices?.[0]?.delta;
                 const content = delta?.content;
+                const reasoning = delta?.reasoning_content;
+                const toolCalls = delta?.tool_calls;
 
+                // Forward reasoning/thinking content
+                if (reasoning) {
+                  controller.enqueue(
+                    encoder.encode(
+                      `data: ${JSON.stringify({ reasoning })}\n\n`
+                    )
+                  );
+                }
+
+                // Forward tool calls
+                if (toolCalls) {
+                  controller.enqueue(
+                    encoder.encode(
+                      `data: ${JSON.stringify({ tool_calls: toolCalls })}\n\n`
+                    )
+                  );
+                }
+
+                // Forward regular content
                 if (content) {
                   totalTokens += 1; // approximate per-chunk
-                  // Send in the format ChatView expects
                   controller.enqueue(
                     encoder.encode(
                       `data: ${JSON.stringify({ content })}\n\n`

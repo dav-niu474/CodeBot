@@ -102,6 +102,8 @@ export function ChatView() {
     addSession,
     setActiveSession,
     deleteSession,
+    setSessions,
+    setMessagesForSession,
     agentConfig,
     setAgentConfig,
     streamingMessageId,
@@ -117,6 +119,7 @@ export function ChatView() {
   } | null>(null);
   const [sessionPanelOpen, setSessionPanelOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -128,6 +131,34 @@ export function ChatView() {
     const q = searchQuery.toLowerCase();
     return sessions.filter((s) => s.title.toLowerCase().includes(q));
   }, [sessions, searchQuery]);
+
+  // ── Load sessions from DB on mount ─────────
+  useEffect(() => {
+    async function loadSessions() {
+      try {
+        const res = await fetch('/api/sessions');
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          const loadedSessions: Session[] = data.map((s: Record<string, unknown>) => ({
+            id: s.id as string,
+            title: s.title as string,
+            model: (s.model as string) || 'default',
+            systemPrompt: (s.systemPrompt as string) || null,
+            isActive: (s.isActive as boolean) ?? true,
+            tokenCount: (s.tokenCount as number) || 0,
+            createdAt: (s.createdAt as string) || new Date().toISOString(),
+            updatedAt: (s.updatedAt as string) || new Date().toISOString(),
+          }));
+          setSessions(loadedSessions);
+        }
+      } catch {
+        // silently fail — offline or DB not available
+      } finally {
+        setSessionsLoaded(true);
+      }
+    }
+    loadSessions();
+  }, [setSessions]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -197,6 +228,9 @@ export function ChatView() {
           throw new Error(data.error || 'Request failed');
         }
 
+        let fullContent = '';
+        let fullThinking = '';
+
         // Check if response is NOT SSE format
         const contentType = res.headers.get('content-type') || '';
         if (!contentType.includes('text/event-stream') && !contentType.includes('application/octet-stream')) {
@@ -208,7 +242,6 @@ export function ChatView() {
 
         const reader = res.body?.getReader();
         const decoder = new TextDecoder();
-        let fullContent = '';
 
         if (reader) {
           let buffer = '';
@@ -232,6 +265,21 @@ export function ChatView() {
                   const data = JSON.parse(payload);
                   if (data.error) {
                     throw new Error(data.error);
+                  }
+                  // Handle reasoning/thinking content from reasoning models
+                  if (data.reasoning) {
+                    fullThinking += data.reasoning;
+                    updateMessage(streamMsgId, { thinkingContent: fullThinking });
+                  }
+                  // Handle tool calls
+                  if (data.tool_calls) {
+                    // Forward tool_calls as JSON string for display
+                    const currentMsg = useChatStore.getState().messages.find(m => m.id === streamMsgId);
+                    const existingCalls = currentMsg?.toolCalls;
+                    const updatedCalls = existingCalls
+                      ? JSON.stringify([...JSON.parse(existingCalls || '[]'), ...data.tool_calls])
+                      : JSON.stringify(data.tool_calls);
+                    updateMessage(streamMsgId, { toolCalls: updatedCalls });
                   }
                   if (data.content) {
                     fullContent += data.content;
@@ -458,28 +506,44 @@ export function ChatView() {
   );
 
   // ── Session Panel Handlers ─────────────────
-  const handleNewChat = useCallback(() => {
-    const now = new Date().toISOString();
-    const newSession: Session = {
-      id: `session-${Date.now()}`,
-      title: 'New Chat',
-      model: selectedModel || agentConfig.activeModel,
-      systemPrompt: null,
-      isActive: true,
-      tokenCount: 0,
-      createdAt: now,
-      updatedAt: now,
-    };
-    addSession(newSession);
-    setSessionPanelOpen(false);
-    toast.success('New chat created');
+  const handleNewChat = useCallback(async () => {
+    try {
+      const res = await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: 'New Chat',
+          model: selectedModel || agentConfig.activeModel,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        toast.error('Failed to create session', { description: data.error });
+        return;
+      }
+      const newSession: Session = {
+        id: data.id,
+        title: data.title,
+        model: data.model,
+        systemPrompt: data.systemPrompt,
+        isActive: data.isActive,
+        tokenCount: 0,
+        createdAt: data.createdAt,
+        updatedAt: data.updatedAt,
+      };
+      addSession(newSession);
+      setSessionPanelOpen(false);
+      toast.success('New chat created');
+    } catch {
+      toast.error('Failed to create session');
+    }
   }, [addSession, selectedModel, agentConfig]);
 
   const handleDeleteSession = useCallback(
     (e: React.MouseEvent, id: string) => {
       e.stopPropagation();
       deleteSession(id);
-      // Also try to delete from DB (fire-and-forget)
+      // Delete from DB (fire-and-forget)
       fetch('/api/sessions', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
@@ -491,28 +555,74 @@ export function ChatView() {
   );
 
   const handleSwitchSession = useCallback(
-    (id: string) => {
+    async (id: string) => {
+      // Check if messages are already cached in the messagesMap
+      const cachedMessages = useChatStore.getState().messagesMap[id];
+
+      // Switch session (saves current messages to map, loads from map)
       setActiveSession(id);
       setSessionPanelOpen(false);
+
+      // If no cached messages, fetch from DB
+      if (!cachedMessages || cachedMessages.length === 0) {
+        try {
+          const res = await fetch(`/api/sessions/${id}`);
+          const data = await res.json();
+          if (data.messages && Array.isArray(data.messages)) {
+            const msgs: Message[] = data.messages.map((m: Record<string, unknown>) => ({
+              id: m.id as string,
+              sessionId: m.sessionId as string,
+              role: (m.role as Message['role']),
+              content: (m.content as string) || '',
+              toolCalls: (m.toolCalls as string) || null,
+              toolResults: (m.toolResults as string) || null,
+              tokens: (m.tokens as number) || 0,
+              thinkingContent: (m.thinkingContent as string) || null,
+              createdAt: (m.createdAt as string) || new Date().toISOString(),
+            }));
+            setMessagesForSession(id, msgs);
+          }
+        } catch {
+          // silently fail
+        }
+      }
     },
-    [setActiveSession]
+    [setActiveSession, setMessagesForSession]
   );
 
   const handleTemplateClick = useCallback(
-    (prompt: string) => {
+    async (prompt: string) => {
       if (!activeSessionId) {
-        const now = new Date().toISOString();
-        const newSession: Session = {
-          id: `session-${Date.now()}`,
-          title: 'New Chat',
-          model: selectedModel || agentConfig.activeModel,
-          systemPrompt: null,
-          isActive: true,
-          tokenCount: 0,
-          createdAt: now,
-          updatedAt: now,
-        };
-        addSession(newSession);
+        // Create a new session via API
+        try {
+          const res = await fetch('/api/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              title: 'New Chat',
+              model: selectedModel || agentConfig.activeModel,
+            }),
+          });
+          const data = await res.json();
+          if (data.error) {
+            toast.error('Failed to create session');
+            return;
+          }
+          const newSession: Session = {
+            id: data.id,
+            title: data.title,
+            model: data.model,
+            systemPrompt: data.systemPrompt,
+            isActive: data.isActive,
+            tokenCount: 0,
+            createdAt: data.createdAt,
+            updatedAt: data.updatedAt,
+          };
+          addSession(newSession);
+        } catch {
+          toast.error('Failed to create session');
+          return;
+        }
       }
       setInput(prompt);
       setSessionPanelOpen(false);
@@ -604,7 +714,11 @@ export function ChatView() {
 
         {/* Session List */}
         <div className="flex-1 overflow-y-auto px-2">
-          {filteredSessions.length === 0 ? (
+          {!sessionsLoaded ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-emerald-500/30 border-t-emerald-500" />
+            </div>
+          ) : filteredSessions.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <History className="mb-3 h-8 w-8 text-muted-foreground/30" />
               <p className="mb-3 text-xs text-muted-foreground/60">

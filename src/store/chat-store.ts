@@ -52,6 +52,7 @@ interface ChatStore {
   activeSessionId: string | null;
   sessions: Session[];
   messages: Message[];
+  messagesMap: Record<string, Message[]>;
   isLoading: boolean;
   activeView: ActiveView;
   tools: ToolDef[];
@@ -81,6 +82,7 @@ interface ChatStore {
   addMessage: (message: Message) => void;
   updateMessage: (id: string, updates: Partial<Message>) => void;
   clearMessages: () => void;
+  setMessagesForSession: (sessionId: string, messages: Message[]) => void;
 
   // ── Loading ────────────────────────────────
   setLoading: (loading: boolean) => void;
@@ -137,11 +139,12 @@ const defaultAgentConfig: AgentConfig = {
   updatedAt: new Date().toISOString(),
 };
 
-export const useChatStore = create<ChatStore>((set, get) => ({
+export const useChatStore = create<ChatStore>((set) => ({
   // ── Initial State ──────────────────────────
   activeSessionId: null,
   sessions: [],
   messages: [],
+  messagesMap: {},
   isLoading: false,
   activeView: "dashboard",
   tools: DEFAULT_TOOLS.map((t, i) => ({
@@ -171,10 +174,17 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   // ── Session actions ────────────────────────
   setActiveSession: (id) =>
-    set({
-      activeSessionId: id,
-      activeView: id ? "chat" : get().activeView,
-      messages: [],
+    set((state) => {
+      // Save current messages to map before switching
+      const newMap = state.activeSessionId
+        ? { ...state.messagesMap, [state.activeSessionId]: state.messages }
+        : state.messagesMap;
+      return {
+        activeSessionId: id,
+        activeView: id ? "chat" : state.activeView,
+        messages: id ? (newMap[id] || []) : [],
+        messagesMap: newMap,
+      };
     }),
 
   setSessions: (sessions) => set({ sessions }),
@@ -185,6 +195,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       activeSessionId: session.id,
       activeView: "chat",
       messages: [],
+      messagesMap: { ...state.messagesMap, [session.id]: [] },
     })),
 
   updateSession: (id, updates) =>
@@ -195,28 +206,65 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     })),
 
   deleteSession: (id) =>
-    set((state) => ({
-      sessions: state.sessions.filter((s) => s.id !== id),
-      activeSessionId:
-        state.activeSessionId === id ? null : state.activeSessionId,
-      messages: state.activeSessionId === id ? [] : state.messages,
-      activeView: state.activeSessionId === id ? "dashboard" : state.activeView,
-    })),
+    set((state) => {
+      const newMap = { ...state.messagesMap };
+      delete newMap[id];
+      return {
+        sessions: state.sessions.filter((s) => s.id !== id),
+        activeSessionId:
+          state.activeSessionId === id ? null : state.activeSessionId,
+        messages: state.activeSessionId === id ? [] : state.messages,
+        messagesMap: newMap,
+        activeView: state.activeSessionId === id ? "dashboard" : state.activeView,
+      };
+    }),
 
   // ── Message actions ────────────────────────
-  setMessages: (messages) => set({ messages }),
-
-  addMessage: (message) =>
-    set((state) => ({ messages: [...state.messages, message] })),
-
-  updateMessage: (id, updates) =>
+  setMessages: (newMessages) =>
     set((state) => ({
-      messages: state.messages.map((m) =>
-        m.id === id ? { ...m, ...updates } : m
-      ),
+      messages: newMessages,
+      messagesMap: state.activeSessionId
+        ? { ...state.messagesMap, [state.activeSessionId]: newMessages }
+        : state.messagesMap,
     })),
 
-  clearMessages: () => set({ messages: [] }),
+  addMessage: (message) =>
+    set((state) => {
+      const newMessages = [...state.messages, message];
+      return {
+        messages: newMessages,
+        messagesMap: state.activeSessionId
+          ? { ...state.messagesMap, [state.activeSessionId]: newMessages }
+          : state.messagesMap,
+      };
+    }),
+
+  updateMessage: (id, updates) =>
+    set((state) => {
+      const newMessages = state.messages.map((m) =>
+        m.id === id ? { ...m, ...updates } : m
+      );
+      return {
+        messages: newMessages,
+        messagesMap: state.activeSessionId
+          ? { ...state.messagesMap, [state.activeSessionId]: newMessages }
+          : state.messagesMap,
+      };
+    }),
+
+  clearMessages: () =>
+    set((state) => ({
+      messages: [],
+      messagesMap: state.activeSessionId
+        ? { ...state.messagesMap, [state.activeSessionId]: [] }
+        : state.messagesMap,
+    })),
+
+  setMessagesForSession: (sessionId, sessionMessages) =>
+    set((state) => ({
+      messagesMap: { ...state.messagesMap, [sessionId]: sessionMessages },
+      messages: state.activeSessionId === sessionId ? sessionMessages : state.messages,
+    })),
 
   // ── Loading ────────────────────────────────
   setLoading: (loading) => set({ isLoading: loading }),

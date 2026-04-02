@@ -12,6 +12,9 @@ const DEFAULT_CONFIG = {
   toolConcurrency: 5,
   theme: 'dark',
   language: 'zh-CN',
+  thinkingEnabled: false,
+  activeModel: 'meta/llama-3.3-70b-instruct',
+  activeMode: 'interactive',
 };
 
 async function getConfig() {
@@ -41,18 +44,6 @@ export async function GET() {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const {
-      agentName,
-      avatar,
-      personality,
-      maxTokens,
-      temperature,
-      autoCompact,
-      compactThreshold,
-      toolConcurrency,
-      theme,
-      language,
-    } = body;
 
     // Ensure a config exists
     let config = await db.agentConfig.findFirst();
@@ -61,20 +52,23 @@ export async function PUT(request: NextRequest) {
       config = await db.agentConfig.create({ data: DEFAULT_CONFIG });
     }
 
+    // Build update data - only include fields that are provided
+    const updateData: Record<string, unknown> = {};
+    const fields = [
+      'agentName', 'avatar', 'personality', 'maxTokens', 'temperature',
+      'autoCompact', 'compactThreshold', 'toolConcurrency', 'theme', 'language',
+      'thinkingEnabled', 'activeModel', 'activeMode', 'nvidiaApiKey',
+    ] as const;
+
+    for (const field of fields) {
+      if (body[field] !== undefined) {
+        updateData[field] = body[field];
+      }
+    }
+
     const updatedConfig = await db.agentConfig.update({
       where: { id: config.id },
-      data: {
-        ...(agentName !== undefined && { agentName }),
-        ...(avatar !== undefined && { avatar }),
-        ...(personality !== undefined && { personality }),
-        ...(maxTokens !== undefined && { maxTokens }),
-        ...(temperature !== undefined && { temperature }),
-        ...(autoCompact !== undefined && { autoCompact }),
-        ...(compactThreshold !== undefined && { compactThreshold }),
-        ...(toolConcurrency !== undefined && { toolConcurrency }),
-        ...(theme !== undefined && { theme }),
-        ...(language !== undefined && { language }),
-      },
+      data: updateData,
     });
 
     return NextResponse.json(updatedConfig);

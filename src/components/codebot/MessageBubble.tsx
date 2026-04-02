@@ -6,7 +6,7 @@ import { useChatStore } from '@/store/chat-store';
 import { Badge } from '@/components/ui/badge';
 import { motion } from 'framer-motion';
 import { RichContentRenderer } from './RichContentRenderer';
-import { Copy, Check, User, Brain } from 'lucide-react';
+import { Copy, Check, User, Brain, ChevronDown } from 'lucide-react';
 import { useState, useCallback } from 'react';
 
 function CopyButton({ text }: { text: string }) {
@@ -70,6 +70,21 @@ function ThinkingIndicator() {
       <Brain className="h-3.5 w-3.5 text-amber-400 animate-pulse" />
       <span className="text-xs font-medium text-amber-400">Thinking...</span>
     </div>
+  );
+}
+
+function ThinkingBlock({ content }: { content: string }) {
+  return (
+    <details className="mb-2 group/thinking">
+      <summary className="flex cursor-pointer items-center gap-2 px-2 py-1.5 rounded-lg bg-amber-500/5 border border-amber-500/10 text-xs font-medium text-amber-400 hover:bg-amber-500/10 transition-colors select-none">
+        <Brain className="h-3.5 w-3.5" />
+        <span>Thought Process</span>
+        <ChevronDown className="ml-auto h-3 w-3 transition-transform duration-200 group-open/thinking:rotate-180" />
+      </summary>
+      <div className="mt-1.5 rounded-lg border border-amber-500/10 bg-amber-500/[0.03] p-3 text-xs text-amber-200/80 whitespace-pre-wrap leading-relaxed max-h-64 overflow-y-auto">
+        {content}
+      </div>
+    </details>
   );
 }
 
@@ -196,9 +211,12 @@ export function MessageBubble({
             </div>
           ) : (
             <div className="markdown-body">
-              {/* Thinking indicator */}
+              {/* Thinking indicator: show when streaming with no content and no thinking content yet */}
               {isThinking && !isStreaming && <ThinkingIndicator />}
-              {isStreaming && !textContent && <ThinkingIndicator />}
+              {isStreaming && !textContent && !message.thinkingContent && <ThinkingIndicator />}
+
+              {/* Thinking/reasoning block: collapsible details element */}
+              {message.thinkingContent && <ThinkingBlock content={message.thinkingContent} />}
 
               {/* Image from tool results */}
               {message.toolResults && message.toolResults.startsWith('data:image') && (
@@ -208,7 +226,6 @@ export function MessageBubble({
               {/* Text content */}
               {textContent && (
                 <>
-                  {isStreaming && !textContent && <ThinkingIndicator />}
                   <RichContentRenderer content={textContent} isStreaming={isStreaming} />
                   {isStreaming && <BlinkingCursor />}
                 </>

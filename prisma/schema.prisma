@@ -178,8 +178,8 @@ model SecurityLog {
   toolName  String
   action    String
   riskLevel String   @default("low")
-  reason    String?  @db.Text
-  command   String?  @db.Text
+  reason    String?   @db.Text
+  command   String?   @db.Text
   createdAt DateTime @default(now())
 
   @@map("security_logs")
