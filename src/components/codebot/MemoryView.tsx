@@ -96,7 +96,7 @@ const MOCK_SESSION_MEMORIES: SessionMemoryItem[] = [
   },
   {
     id: 's2',
-    content: 'Project uses Prisma ORM with SQLite database',
+    content: 'Project uses Prisma ORM with PostgreSQL database',
     importance: 9,
     createdAt: '2024-01-15T10:35:00Z',
     category: 'pattern',

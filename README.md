@@ -185,6 +185,7 @@ SleepTool / REPLTool / VoiceTool / DreamTaskTool / MagicDocsTool
 - Node.js 18+
 - Bun (推荐)
 - Git
+- PostgreSQL 数据库 (本地或云服务)
 
 ### 安装
 
@@ -193,10 +194,14 @@ SleepTool / REPLTool / VoiceTool / DreamTaskTool / MagicDocsTool
 git clone https://github.com/dav-niu474/CodeBot.git
 cd CodeBot
 
-# 安装依赖
+# 安装依赖 (自动生成 Prisma Client)
 bun install
 
-# 初始化数据库
+# 配置数据库连接
+cp .env.example .env
+# 编辑 .env 填写 DATABASE_URL 和 NVIDIA_API_KEY
+
+# 推送数据库 Schema
 bun run db:push
 
 # 启动开发服务器
@@ -205,13 +210,46 @@ bun run dev
 
 ### 配置
 
-在 `src/lib/nvidia.ts` 中配置你的 NVIDIA API Key：
+在 `.env` 文件中配置：
 
-```typescript
-const NVIDIA_API_KEY = "your-nvidia-api-key-here";
+```bash
+# PostgreSQL 数据库连接
+DATABASE_URL="postgresql://user:password@localhost:5432/codebot"
+
+# NVIDIA API Key (免费获取)
+NVIDIA_API_KEY="nvapi-xxxxx"
 ```
 
 获取免费API Key: [https://build.nvidia.com](https://build.nvidia.com)
+
+### ☁️ 部署到 Vercel
+
+1. **准备 PostgreSQL 数据库** — 推荐以下免费方案：
+   - [Neon](https://neon.tech) — Serverless PostgreSQL，免费额度充足
+   - [Supabase](https://supabase.com) — 免费 500MB
+   - [Vercel Postgres](https://vercel.com/docs/storage/vercel-postgres) — Vercel 原生集成
+
+2. **部署项目**：
+   ```bash
+   # 安装 Vercel CLI
+   npm i -g vercel
+
+   # 登录并部署
+   vercel
+
+   # 设置环境变量
+   vercel env add DATABASE_URL
+   vercel env add NVIDIA_API_KEY
+   ```
+
+3. **初始化数据库**：
+   ```bash
+   # 连接到你的生产数据库后执行
+   vercel env pull .env.production
+   npx prisma db push
+   ```
+
+> ⚠️ Vercel Serverless 函数每次冷启动都是全新环境，不支持 SQLite 文件存储，因此必须使用 PostgreSQL。
 
 ---
 
@@ -220,9 +258,7 @@ const NVIDIA_API_KEY = "your-nvidia-api-key-here";
 ```
 CodeBot/
 ├── prisma/
-│   └── schema.prisma          # 数据库模型 (12个表)
-├── db/
-│   └── custom.db              # SQLite数据库文件
+│   └── schema.prisma          # 数据库模型 (12个表, PostgreSQL)
 ├── src/
 │   ├── app/
 │   │   ├── api/
@@ -286,7 +322,7 @@ CodeBot/
 | **shadcn/ui** | UI组件库 | New York |
 | **Framer Motion** | 动画 | 12 |
 | **Zustand** | 状态管理 | 5 |
-| **Prisma** | ORM (SQLite) | 6 |
+| **Prisma** | ORM (PostgreSQL) | 6 |
 | **react-markdown** | Markdown渲染 | 10 |
 | **mermaid** | 流程图渲染 | 11 |
 | **rehype-raw** | HTML标签支持 | 7 |

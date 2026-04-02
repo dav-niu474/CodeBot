@@ -25,28 +25,28 @@ export async function GET() {
     const totalCost = totals._sum.cost ?? 0;
 
     // ── Distinct session count ───────────────────────────
-    const sessionCountResult = await db.$queryRaw<Array<{ count: number }>>`
-      SELECT COUNT(DISTINCT session_id) as count FROM TokenUsage WHERE session_id IS NOT NULL
+    const sessionCountResult = await db.$queryRaw<Array<{ count: bigint }>>`
+      SELECT COUNT(DISTINCT "sessionId")::int as count FROM "token_usages" WHERE "sessionId" IS NOT NULL
     `;
-    const sessionCount = sessionCountResult[0]?.count ?? 0;
+    const sessionCount = Number(sessionCountResult[0]?.count) || 0;
 
     // ── Model breakdown (GROUP BY modelId) ──────────────
     const modelBreakdownRaw = await db.$queryRaw<
       Array<{
-        modelId: string;
-        tokens: number;
-        inputTokens: number;
-        outputTokens: number;
-        sessions: number;
+        "modelId": string;
+        tokens: bigint;
+        inputTokens: bigint;
+        outputTokens: bigint;
+        sessions: bigint;
       }>
     >`
-      SELECT model_id as modelId,
-             SUM(input_tokens + output_tokens) as tokens,
-             SUM(input_tokens) as inputTokens,
-             SUM(output_tokens) as outputTokens,
-             COUNT(DISTINCT session_id) as sessions
-      FROM TokenUsage
-      GROUP BY model_id
+      SELECT "modelId",
+             SUM("inputTokens" + "outputTokens") as tokens,
+             SUM("inputTokens") as "inputTokens",
+             SUM("outputTokens") as "outputTokens",
+             COUNT(DISTINCT "sessionId")::int as sessions
+      FROM "token_usages"
+      GROUP BY "modelId"
       ORDER BY tokens DESC
     `;
 
@@ -63,21 +63,21 @@ export async function GET() {
     const dailyUsageRaw = await db.$queryRaw<
       Array<{
         date: string;
-        tokens: number;
+        tokens: bigint;
         cost: number;
       }>
     >`
-      SELECT date(createdAt) as date,
-             SUM(input_tokens + output_tokens) as tokens,
+      SELECT DATE("createdAt") as date,
+             SUM("inputTokens" + "outputTokens") as tokens,
              SUM(cost) as cost
-      FROM TokenUsage
-      WHERE createdAt >= date('now', '-7 days')
-      GROUP BY date(createdAt)
+      FROM "token_usages"
+      WHERE "createdAt" >= CURRENT_DATE - INTERVAL '7 days'
+      GROUP BY DATE("createdAt")
       ORDER BY date ASC
     `;
 
     const dailyUsage = dailyUsageRaw.map((row) => ({
-      date: row.date,
+      date: String(row.date),
       tokens: Number(row.tokens) || 0,
       cost: Number(row.cost) || 0,
     }));
@@ -86,19 +86,19 @@ export async function GET() {
     const recentUsageRaw = await db.$queryRaw<
       Array<{
         id: string;
-        modelId: string;
-        tokens: number;
+        "modelId": string;
+        tokens: bigint;
         cost: number;
-        createdAt: string;
+        "createdAt": Date;
       }>
     >`
       SELECT id,
-             model_id as modelId,
-             (input_tokens + output_tokens) as tokens,
+             "modelId",
+             ("inputTokens" + "outputTokens") as tokens,
              cost,
-             createdAt
-      FROM TokenUsage
-      ORDER BY createdAt DESC
+             "createdAt"
+      FROM "token_usages"
+      ORDER BY "createdAt" DESC
       LIMIT 20
     `;
 
@@ -107,7 +107,7 @@ export async function GET() {
       modelId: row.modelId,
       tokens: Number(row.tokens) || 0,
       cost: Number(row.cost) || 0,
-      createdAt: row.createdAt,
+      createdAt: row.createdAt.toISOString(),
     }));
 
     return NextResponse.json({

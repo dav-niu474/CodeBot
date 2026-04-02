@@ -341,3 +341,46 @@ Build Token Analytics View — comprehensive token usage analytics dashboard sho
 - Ran lint: 0 errors
 - Design matches existing views: dark theme, emerald accents, zinc backgrounds, border-border/50 bg-card/50 cards
 - No new packages installed
+
+---
+Task ID: 2
+Agent: Main Orchestrator
+Task: Update README version history plan + Fix deployment build
+
+Work Log:
+- Read README.md, package.json, worklog.md to understand current state
+- Checked build: `bun run build` succeeds (26 routes compiled)
+- Verified standalone output: missing `db/` and `prisma/` directories
+- Tested standalone server on port 3099: starts successfully
+- **README Updates** (`README.md`):
+  - Updated architecture diagram version: v2.1 → v2.5
+  - Added v2.4.0 section (6 completed features): Command Palette, Git Integration, Chat Export, Keyboard Shortcuts, Rich Content Renderer, Custom Model API, SSE 3-layer protection
+  - Added v2.5.0 section (6 completed features): Session Manager, Template Library, Token Analytics, Mobile Responsive, Git View, Dashboard upgrade
+  - Updated project structure: 18 view components, 15+ API routes, 12 DB models, added db/ directory
+  - Updated tech stack: added react-markdown, mermaid, rehype-raw, remark-gfm, react-syntax-highlighter, date-fns
+  - Updated code statistics: 25,900+ lines, 101 files, 18 views, 15+ API routes, 12 DB models
+- **Deployment Fix** (`package.json`):
+  - Added `prisma generate` step before `next build`
+  - Added `mkdir -p .next/standalone/db && cp -r db/* .next/standalone/db/` to copy SQLite database
+  - Added `mkdir -p .next/standalone/prisma && cp prisma/schema.prisma .next/standalone/prisma/` to copy schema
+- **Database Path Fix** (`src/lib/db.ts`):
+  - Added `getDatabaseUrl()` function with dynamic path resolution
+  - Uses absolute path from DATABASE_URL if present
+  - Falls back to `process.cwd()/db/custom.db` for deployment portability
+  - Uses `datasourceUrl` option in PrismaClient constructor
+  - Disabled Prisma query logging in production mode
+- **API Route Consolidation** (3 files):
+  - `src/app/api/custom-models/route.ts`: switched from `new PrismaClient()` to `import { db } from '@/lib/db'`
+  - `src/app/api/custom-models/[id]/route.ts`: same migration
+  - `src/app/api/analytics/route.ts`: same migration
+- Ran lint: 0 errors
+- Ran full build: succeeds, standalone output includes db/ and prisma/
+- Tested standalone server: starts in 61ms, database accessible
+
+Stage Summary:
+- 6 files modified: README.md, package.json, src/lib/db.ts, 3 API routes
+- Build now produces complete standalone output with database and schema
+- All API routes use shared db client with dynamic path resolution
+- Production server verified: starts successfully, database accessible
+- No new packages installed, 0 lint errors
+- Git commit: bde3d68 "fix: deployment build - add db/prisma to standalone + update README version history"
