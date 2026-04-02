@@ -41,7 +41,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    CodeBot Agent v2.1                            │
+│                    CodeBot Agent v2.5                            │
 │                                                                 │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────────┐   │
 │  │Dashboard │ │   Chat   │ │Model Hub │ │     Modes (10)   │   │
@@ -220,39 +220,51 @@ const NVIDIA_API_KEY = "your-nvidia-api-key-here";
 ```
 CodeBot/
 ├── prisma/
-│   └── schema.prisma          # 数据库模型 (9个表)
+│   └── schema.prisma          # 数据库模型 (12个表)
+├── db/
+│   └── custom.db              # SQLite数据库文件
 ├── src/
 │   ├── app/
 │   │   ├── api/
 │   │   │   ├── chat/stream/   # NVIDIA流式对话API
 │   │   │   ├── models/        # 模型列表+测试API
+│   │   │   ├── custom-models/ # 自定义模型CRUD API
 │   │   │   ├── memory/        # 4层记忆CRUD
-│   │   │   ├── agents/        # 多Agent API
+│   │   │   ├── agents/        # 多Agent API (coordinator/swarm)
 │   │   │   ├── sessions/      # 会话管理
 │   │   │   ├── tools/         # 工具管理
-│   │   │   └── skills/        # 技能管理
-│   │   ├── globals.css        # 全局样式 (暗色主题)
+│   │   │   ├── skills/        # 技能管理
+│   │   │   ├── git/           # Git集成API
+│   │   │   ├── analytics/     # Token分析API
+│   │   │   ├── settings/      # Agent配置API
+│   │   │   └── ai/            # AI能力API (code-analyze/image-analyze/web-search)
+│   │   ├── globals.css        # 全局样式 (暗色主题+富文本)
 │   │   ├── layout.tsx         # 根布局
-│   │   └── page.tsx           # 主页面 (11视图路由)
+│   │   └── page.tsx           # 主页面 (14视图路由)
 │   ├── components/
 │   │   ├── codebot/
-│   │   │   ├── DashboardView.tsx    # 总览仪表盘
-│   │   │   ├── ChatView.tsx         # 对话视图
-│   │   │   ├── ModelHubView.tsx     # NVIDIA模型浏览器
-│   │   │   ├── ToolsView.tsx        # 44工具管理
-│   │   │   ├── ModesView.tsx        # 10运行模式
-│   │   │   ├── MemoryView.tsx       # 4层记忆系统
-│   │   │   ├── AgentsView.tsx       # 多Agent面板
-│   │   │   ├── SecurityView.tsx     # 7层安全防护
-│   │   │   ├── SkillsView.tsx       # 技能管理
-│   │   │   ├── SettingsView.tsx     # Agent配置
+│   │   │   ├── DashboardView.tsx      # 总览仪表盘 (v2.5)
+│   │   │   ├── ChatView.tsx           # 对话视图 + 会话管理 + 模板库
+│   │   │   ├── ModelHubView.tsx       # NVIDIA模型浏览器 + 自定义模型
+│   │   │   ├── ToolsView.tsx          # 44工具管理
+│   │   │   ├── ModesView.tsx          # 10运行模式
+│   │   │   ├── MemoryView.tsx         # 4层记忆系统
+│   │   │   ├── AgentsView.tsx         # 多Agent面板
+│   │   │   ├── SecurityView.tsx       # 7层安全防护
+│   │   │   ├── SkillsView.tsx         # 技能管理
+│   │   │   ├── SettingsView.tsx       # Agent配置
 │   │   │   ├── AICapabilitiesView.tsx # AI能力开关
-│   │   │   ├── MessageBubble.tsx    # 消息气泡
-│   │   │   └── Sidebar.tsx          # 导航侧边栏
+│   │   │   ├── GitView.tsx            # Git集成管理
+│   │   │   ├── AnalyticsView.tsx      # Token分析仪表盘
+│   │   │   ├── MessageBubble.tsx      # 消息气泡 (富文本)
+│   │   │   ├── RichContentRenderer.tsx # 富文本渲染引擎
+│   │   │   ├── CommandPalette.tsx     # 命令面板 (Cmd+K)
+│   │   │   ├── KeyboardShortcuts.tsx  # 快捷键帮助
+│   │   │   └── Sidebar.tsx            # 导航侧边栏
 │   │   └── ui/                  # shadcn/ui 组件库
 │   ├── hooks/                 # React Hooks
 │   ├── lib/
-│   │   ├── types.ts           # 完整类型系统 (1,976行)
+│   │   ├── types.ts           # 完整类型系统
 │   │   ├── nvidia.ts          # NVIDIA API客户端
 │   │   ├── db.ts              # Prisma数据库客户端
 │   │   └── utils.ts           # 工具函数
@@ -268,24 +280,29 @@ CodeBot/
 
 | 技术 | 用途 | 版本 |
 |:---|:---|:---|
-| **Next.js** | React框架 (App Router) | 16 |
+| **Next.js** | React框架 (App Router, Standalone) | 16 |
 | **TypeScript** | 类型安全 | 5 |
 | **Tailwind CSS** | 样式系统 | 4 |
 | **shadcn/ui** | UI组件库 | New York |
 | **Framer Motion** | 动画 | 12 |
 | **Zustand** | 状态管理 | 5 |
-| **Prisma** | ORM | 6 |
-| **SQLite** | 数据库 | — |
-| **NVIDIA NIM** | AI大模型API | — |
+| **Prisma** | ORM (SQLite) | 6 |
+| **react-markdown** | Markdown渲染 | 10 |
+| **mermaid** | 流程图渲染 | 11 |
+| **rehype-raw** | HTML标签支持 | 7 |
+| **remark-gfm** | GitHub Flavored Markdown | 4 |
+| **react-syntax-highlighter** | 代码高亮 | 15 |
+| **date-fns** | 日期格式化 | 4 |
 | **Lucide React** | 图标 | — |
+| **NVIDIA NIM** | AI大模型API (188免费模型) | — |
 
 ---
 
 ## 🗺️ 版本路线图
 
-### ✅ v2.1.0 — 当前版本 (2025-07)
+### ✅ v2.1.0 — 基础架构 (2025-07)
 
-**已实现 (11,600+ 行代码)**
+**核心框架搭建 (11,600+ 行代码)**
 
 - [x] NVIDIA NIM API 集成 (188免费模型, OpenAI兼容)
 - [x] 44工具系统完整定义 (14核心 + 25延迟加载 + 5特性门控)
@@ -300,6 +317,29 @@ CodeBot/
 - [x] 模型选择器 + 快速测试
 - [x] Prisma 数据库 (9个模型)
 - [x] 暗色主题 + 响应式设计
+
+### ✅ v2.4.0 — 交互增强 (2025-07)
+
+**6大新特性, UI全面优化**
+
+- [x] **命令面板 (Command Palette)** — `Cmd/Ctrl+K` 全局搜索, 12视图快速导航, 最近历史记录
+- [x] **Git集成** — 提交日志/分支管理/文件变更/彩色Diff视图/代码统计
+- [x] **聊天导出** — Markdown格式导出完整对话记录
+- [x] **快捷键帮助** — `?` 键打开快捷键参考面板
+- [x] **富文本渲染引擎** — Mermaid流程图/GFM表格/任务列表/代码高亮+复制/数学公式
+- [x] **自定义模型接入** — OpenAI兼容API, 任意Base URL/Key, 支持流式/视觉
+- [x] **SSE流式解析增强** — 3层容错: Content-Type检测 → JSON回退 → 原文捕获
+
+### ✅ v2.5.0 — 会话与数据 (2025-07)
+
+**会话管理 + Token分析 + 移动端适配**
+
+- [x] **会话管理面板** — 侧边栏会话列表, 搜索/切换/删除, Token统计显示
+- [x] **快捷模板库** — 12个编码提示模板, 分类标签, 一键插入
+- [x] **Token分析仪表盘** — 总量统计/模型对比/7日趋势/成本估算
+- [x] **移动端响应式** — 底部导航栏, 自适应网格, 头部精简, 标签页横滚
+- [x] **Git分析视图** — 新增Git管理视图, 完整的Git API
+- [x] **Dashboard升级** — v2.5版本标识, 新能力卡片, 更新日志
 
 ### 🔜 v3.0.0 — 工具执行引擎
 
@@ -371,10 +411,11 @@ CodeBot/
 ## 📊 代码统计
 
 ```
- TypeScript/TSX:  11,652 行
- 组件文件:         14 个 (codebot views)
- API路由:          8 个
- 数据库模型:       9 个
+ TypeScript/TSX:  25,900+ 行
+ 源码文件:         101 个
+ 视图组件:         18 个 (codebot views)
+ API路由:          15+ 个
+ 数据库模型:       12 个
  工具定义:        44 个
  运行模式:        10 个
  特性标志:        16 个
