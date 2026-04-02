@@ -384,3 +384,42 @@ Stage Summary:
 - Production server verified: starts successfully, database accessible
 - No new packages installed, 0 lint errors
 - Git commit: bde3d68 "fix: deployment build - add db/prisma to standalone + update README version history"
+
+---
+Task ID: 3
+Agent: Main Orchestrator
+Task: Vercel deployment support - migrate SQLite to PostgreSQL
+
+Work Log:
+- Analyzed 6 files with SQLite-specific code (schema, db.ts, analytics route, .env, build script, MemoryView)
+- **next.config.ts**: Removed `output: "standalone"` — Vercel manages its own output format
+- **prisma/schema.prisma**:
+  - Changed `provider = "sqlite"` → `provider = "postgresql"`
+  - Added `@@map("table_name")` to all 12 models for consistent table naming
+  - Added `@db.Text` to all long content fields (content, description, config, etc.)
+  - PostgreSQL uses `cuid()` for IDs (Prisma-side generation, works fine)
+- **src/lib/db.ts**: Removed `getDatabaseUrl()` function and `datasourceUrl` override; Prisma now reads `DATABASE_URL` directly from env
+- **src/app/api/analytics/route.ts**: Rewrote all 4 `$queryRaw` queries:
+  - `date('now', '-7 days')` → `CURRENT_DATE - INTERVAL '7 days'`
+  - `date(createdAt)` → `DATE("createdAt")`
+  - `session_id` → `"sessionId"` (PostgreSQL uses camelCase with Prisma's @@map)
+  - Added `::int` cast for `COUNT(DISTINCT ...)` (PostgreSQL returns bigint)
+  - Used `.toISOString()` for date serialization
+- **src/components/codebot/MemoryView.tsx**: Changed "SQLite" → "PostgreSQL" in demo data
+- **package.json**: 
+  - Simplified build: `prisma generate && next build`
+  - Added `postinstall: prisma generate` (Vercel runs this automatically)
+  - Added `db:migrate:deploy` script
+  - Removed standalone start command, now uses `next start`
+- **vercel.json**: Created with framework=nextjs, buildCommand, security headers
+- **.env.example**: Created PostgreSQL + NVIDIA template
+- **README.md**: Added Vercel deployment section with Neon/Supabase/Vercel Postgres recommendations
+- Ran lint: 0 errors
+- Dev server: running, 200 OK
+
+Stage Summary:
+- 9 files changed, 271 insertions, 169 deletions
+- Database fully migrated from SQLite to PostgreSQL
+- Vercel-ready: no standalone output, no file-based DB, postinstall hook
+- Git commit: 23a0e08 "feat: Vercel deployment support - migrate SQLite to PostgreSQL"
+- User needs to: set DATABASE_URL to PostgreSQL, run prisma db push
