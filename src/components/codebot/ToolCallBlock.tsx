@@ -9,7 +9,7 @@ import {
   CheckCircle2, XCircle, Loader2, ChevronDown, Clock, Shield,
   Plug, ScanLine, Sparkles, List, FileInput, SearchCode, ClipboardList,
   GitBranch, GitMerge, PlusCircle, ListChecks, FileOutput, CircleStop,
-  RefreshCw, Plan, Play, ShieldAlert, Zap,
+  RefreshCw, LayoutList, Play, ShieldAlert, Zap,
   type LucideIcon,
 } from 'lucide-react';
 import { useState, useMemo } from 'react';
@@ -41,7 +41,7 @@ const TOOL_ICONS: Record<string, LucideIcon> = {
   'read-mcp-resource': FileInput,
   'mcp-auth': Shield,
   'tool-search': SearchCode,
-  'enter-plan-mode': Plan,
+  'enter-plan-mode': LayoutList,
   'exit-plan-mode': Play,
   'enter-worktree': GitBranch,
   'exit-worktree': GitMerge,
