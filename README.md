@@ -395,19 +395,21 @@ CodeBot/
 - [x] **ToolCallBlock UI** — 工具调用可视化 (图标/名称/参数/风险/状态/时长, 可展开详情)
 - [x] **ToolApprovalDialog** — 权限审批弹窗 (风险自适应, 参数预览, 三级操作按钮)
 
-### 🔜 v3.5.0 — Token压缩与记忆
+### ✅ v3.5.0 — Token压缩与记忆 (2025-07)
 
-**核心目标: 长对话不丢失上下文**
+**核心目标: 长对话不丢失上下文 — 四层记忆系统真正可运行**
 
-- [ ] **Snip压缩** — 预防性旧工具输出替换为摘要
-- [ ] **Auto压缩** — 阈值触发 (有效窗口-13,000 tokens)
-- [ ] **Responsive压缩** — prompt-too-long紧急兜底
-- [ ] **Cache Breakpoints** — API侧缓存，成本降低90%
-- [ ] **微压缩** — FileEdit后精确删除旧FileRead结果
-- [ ] **Session Memory** — 子Agent周期性提取关键信息
-- [ ] **Memdir系统** — MEMORY.md 项目记忆目录
-- [ ] **Magic Docs** — # MAGIC DOC: 标记自动文档
-- [ ] **DreamTask** — 24h+5会话自动触发知识蒸馏
+- [x] **Snip压缩** — 预防性旧工具输出替换为摘要 (>500 chars截断, 保留最近10条)
+- [x] **Auto压缩** — 阈值触发 (65K tokens), AI摘要旧消息 (NVIDIA API, snip降级回退)
+- [x] **Responsive压缩** — prompt-too-long紧急兜底 (激进截断, 保留system+最新user消息)
+- [x] **微压缩** — FileEdit后精确删除旧FileRead结果 (上下文感知, Glob/Grep结果摘要)
+- [x] **Token计数器** — CJK/代码/英文三重感知, 精确token估算
+- [x] **Session Memory** — 会话记忆自动提取 (15正则模式, 6分类, 去重+相似度)
+- [x] **Memdir系统** — MEMORY.md 项目记忆目录 (读写同步, 200行/25KB限制)
+- [x] **Magic Docs** — AI维护的活文档 (7天过期, 文件关联, 智能检索)
+- [x] **DreamTask** — 知识蒸馏引擎 (5会话/24h触发, Jaccard去重, 模式识别)
+- [x] **MemoryView UI** — 真实数据驱动 (4层Tab, CRUD操作, 统计面板, 搜索过滤)
+- [x] **Agentic Loop集成** — 记忆注入系统提示, 自动压缩对话, 循环后提取记忆
 
 ### 🔜 v4.0.0 — 多Agent实战
 

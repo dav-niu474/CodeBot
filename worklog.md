@@ -776,3 +776,319 @@ Stage Summary:
 - Beautiful ToolCallBlock UI with risk levels, status, expandable details
 - ToolApprovalDialog for permission management
 - Backward compatible with V2 SSE protocol
+
+---
+## Task ID: 2
+### Agent: full-stack-developer
+### Work Task
+V3.5.0 Token Compression Engine — Create 4-strategy compression system for managing long conversation contexts.
+
+### Work Summary
+
+- Read worklog.md and examined existing code structure: stream route (src/app/api/chat/stream/route.ts), NVIDIA API client (src/lib/nvidia.ts), tool executor types (src/lib/tools/types.ts)
+- Created `src/lib/compression/` directory with 7 files:
+
+**`src/lib/compression/types.ts`** (~45 lines):
+- `CompressionType`: union of 4 strategies ('snip' | 'auto' | 'responsive' | 'micro')
+- `CompressedMessage`: role, content, isCompressed flag, originalTokens, compressedTokens
+- `CompressionResult`: messages array, originalTotalTokens, compressedTotalTokens, ratio, strategy, compressedCount, timestamp
+- `CompressionConfig`: maxContextTokens, systemPromptTokens, responseTokens, historyBudget, snipAfterMessages, autoThresholdTokens, autoTargetRatio, maxCompressBatch, minMessagesForCompression
+
+**`src/lib/compression/token-counter.ts`** (~30 lines):
+- `estimateTokens(text)`: Character-based token estimation with CJK (~0.67 tok/char) and code symbols (~0.33 tok/char) awareness, English ~0.25 tok/char
+- `estimateMessagesTokens(messages)`: Reducer that sums token counts across message array
+
+**`src/lib/compression/snip.ts`** (~80 lines):
+- `snipCompress(messages, config)`: Preventive compression for old messages outside keep window
+- Tool messages >500 chars: replaced with preview + truncation notice
+- Assistant messages >3000 chars: replaced with placeholder noting token count
+- User/system messages: always kept intact
+
+**`src/lib/compression/auto.ts`** (~150 lines):
+- `autoCompress(messages, config)`: AI-powered summarization using NVIDIA API (llama-3.1-8b-instruct)
+- Threshold-triggered: only compresses when tokens exceed autoThresholdTokens (65K)
+- Calculates split point to meet target ratio (40%), summarizes oldest messages into single system message
+- Fallback to snip-style truncation if API call fails
+- Preserves minMessagesForCompression guard (8 messages minimum)
+
+**`src/lib/compression/responsive.ts`** (~130 lines):
+- `responsiveCompress(messages, maxTokens)`: Emergency aggressive truncation
+- Always keeps system messages and last user message
+- Walks backwards through removable messages keeping newest until budget met
+- Extreme case fallback: truncates longest messages proportionally
+
+**`src/lib/compression/micro.ts`** (~120 lines):
+- `microCompress(messages, lastToolResults)`: Context-aware optimization
+- File-edit dedup: after file-edit, finds and compresses prior file-read for same path
+- Search summarization: compresses large glob/grep results (>2000 chars) with head/tail summary
+- Pattern detection uses file path matching and line-number format heuristics
+
+**`src/lib/compression/index.ts`** (~120 lines):
+- `DEFAULT_COMPRESSION_CONFIG`: 100K context, 500 system, 8192 response, 65K auto threshold, 40% target ratio
+- `compressMessages(messages, config?, options?)`: Main orchestrator with automatic strategy selection:
+  1. Apply micro compression if tool results provided
+  2. If micro brings under threshold → return early
+  3. If >90% of context window → responsive (emergency)
+  4. If > history budget → snip (fast)
+  5. If > auto threshold → auto (AI-powered)
+- `needsCompression(messages, config?)`: Quick boolean check
+- Barrel re-exports all submodules and types
+
+### Stage Summary
+- 7 new files created under src/lib/compression/ (~675 lines total)
+- 4 compression strategies: snip (preventive), auto (AI-powered), responsive (emergency), micro (context-aware)
+- Token estimation with CJK and code symbol awareness
+- AI summarization uses NVIDIA API (meta/llama-3.1-8b-instruct) with snip fallback
+- All files server-side only (no 'use client')
+- ESLint: 0 errors, 0 warnings
+- Dev server compiling and serving successfully
+- No new packages installed
+---
+## Task ID: v3.5.0-memory
+### Agent: Memory Systems Developer
+### Work Task
+Build Magic Docs and DreamTask systems — two advanced memory features for CodeBot v3.5.0 token compression and memory architecture.
+
+### Work Summary
+
+**Pre-existing Infrastructure Analyzed:**
+- Memory model in Prisma schema: `layer` (string), `category` (string?), `content` (text), `filePath` (string?), `tags` (text?), `importance` (int, 1-10), `accessCount` (int), `expiresAt` (datetime?)
+- Existing memory API routes: GET/POST `/api/memory`, GET/PUT/DELETE `/api/memory/[id]`, POST `/api/memory/compact`, POST `/api/memory/dream`
+- Existing VALID_LAYERS: `["session", "memdir", "magic_doc", "team"]`
+- Existing VALID_CATEGORIES: `["preference", "pattern", "decision", "error", "context", "knowledge"]`
+- DB client: `import { db } from "@/lib/db"` (singleton PrismaClient)
+
+**Task 1 — Magic Docs System** (`src/lib/memory/magic-docs.ts`, ~240 lines):
+- `MagicDocEntry` interface: id, title, content, sourceFiles, tags, accessCount, generatedAt, expiresAt
+- Storage strategy: `layer='magic-doc'`, title + tags stored in `tags` field as JSON `{ title, tags: [] }`, sourceFiles stored in `filePath` field as JSON string array
+- `upsertMagicDoc()`: Checks for existing doc by sorted sourceFiles JSON match → updates content/tags/accessCount + resets 7-day expiry, or creates new with importance 6
+- `searchMagicDocs()`: Text search across content and tags fields, filtered to non-expired, ordered by accessCount DESC
+- `getMagicDocsForFiles()`: Loads all non-expired magic docs, filters by sourceFile path overlap (exact match or substring), increments access counts for matched docs
+- `buildMagicDocContext()`: Formats doc entries as Markdown for system prompt injection (`## Cached Documentation` section)
+- `cleanupExpiredDocs()`: Deletes all expired magic-doc records, returns count
+- Helper functions: `deleteMagicDoc()`, `getMagicDocById()`, `listMagicDocs()` (with pagination and includeExpired option)
+- Server-side only (no 'use client'), pure TypeScript, uses only Prisma ORM
+
+**Task 2 — DreamTask System** (`src/lib/memory/dream-task.ts`, ~310 lines):
+- `DreamTaskResult` interface: id, consolidatedFacts, patterns, recommendations, processedSessions, timestamp
+- Storage strategy: `layer='dream'`, categories 'fact'/'pattern'/'recommendation'/'context', batch tracked via dreamId in tags
+- `shouldTriggerDreamTask()`: Returns true if 5+ sessions exist OR (last dream >24h ago AND new session memories exist)
+- `executeDreamTask()`: Pure pattern matching (NO AI calls to avoid infinite loops):
+  1. Loads all session-layer memories
+  2. Groups by category using `groupByCategory()`
+  3. Deduplicates within categories using word-level Jaccard similarity (threshold 0.4) via `deduplicateGroup()`
+  4. Facts: items appearing in 3+ occurrences → importance 10, category 'fact'
+  5. Patterns: items appearing 2x → importance 7, category 'pattern'
+  6. Error recommendations via regex pattern matching on 12 error patterns (permission denied, not found, timeout, EACCES, etc.)
+  7. General recommendations for high pattern/fact counts
+  8. Stores all results as dream-layer memories with batch-consistent dreamId tags
+  9. Creates summary memory with execution stats
+- `getDreamInsights()`: Loads dream-layer memories, categorizes into facts/patterns/recommendations, skips summary entries
+- `buildDreamInsightContext()`: Formats insights as Markdown for system prompt injection (`## Dream Insights` section)
+- Helper functions: `getLastDreamTimestamp()`, `cleanupOldDreamMemories()` (retains only latest batch)
+- Helper utilities: `normalize()`, `extractCoreContent()` (strips metadata prefixes), `isSimilar()` (Jaccard word similarity)
+
+**API Layer Updates:**
+- `src/app/api/memory/route.ts`: VALID_LAYERS expanded to `["session", "memdir", "magic_doc", "magic-doc", "dream", "team"]`, VALID_CATEGORIES expanded to include `"fact"` and `"recommendation"`
+- `src/app/api/memory/dream/route.ts`: VALID_LAYERS expanded to match
+
+**Files Created:**
+1. `src/lib/memory/magic-docs.ts` (~240 lines) — 8 exported functions
+2. `src/lib/memory/dream-task.ts` (~310 lines) — 6 exported functions
+
+**Files Modified:**
+3. `src/app/api/memory/route.ts` — VALID_LAYERS + VALID_CATEGORIES expansion
+4. `src/app/api/memory/dream/route.ts` — VALID_LAYERS expansion
+
+**Verification:**
+- ESLint: 0 errors, 0 warnings
+- Dev server: compiling successfully, no errors in dev.log
+- No new packages installed
+- All server-side only (no 'use client' directives)
+- No AI calls in DreamTask (pure pattern matching)
+
+**Key Design Decisions:**
+- Magic docs use `magic-doc` layer (hyphenated) to distinguish from existing `magic_doc` layer
+- Dream results use `dream` layer — entirely new layer for consolidated knowledge
+- Tags stored as structured JSON: `{ title: string, tags: string[] }` for magic docs, `[string, ...]` for dreams
+- SourceFiles stored as JSON array in `filePath` field (repurposed for magic docs)
+- 7-day expiry for magic docs (auto-cleanup via `cleanupExpiredDocs()`)
+- DreamTask batch isolation via `dreamId` in tags (enables cleanup of old batches)
+- Jaccard similarity threshold 0.4 for deduplication (balances false positives/negatives)
+
+---
+## Task ID: 4-a
+### Agent: Memory Backend Developer
+### Work Task
+Build Memory Persistence Backend & Memdir System for v3.5.0 — Session Memory Manager, Memdir System, Unified Memory Manager, and updated Memory API route.
+
+### Work Summary
+
+**Pre-existing Infrastructure Verified:**
+- Prisma `Memory` model already exists with fields: id, sessionId, layer, category, content, filePath, tags, importance, accessCount, expiresAt, createdAt, updatedAt
+- DB client imported as `import { db } from "@/lib/db"`
+- Existing `/api/memory` route with GET (list/filter) and POST (create) handlers
+- Existing VALID_LAYERS: `["session", "memdir", "magic_doc", "team"]`
+
+**File 1 — `src/lib/memory/session-memory.ts`** (~250 lines):
+- `extractMemoriesFromMessages(messages)`: Heuristic memory extraction from last 10 messages using regex patterns
+  - 6 category rules: preference (importance 7), decision (importance 8), error (importance 7), pattern (importance 6), fact (importance 5), task (importance 4)
+  - 15 regex patterns covering: "I prefer", "let's use", "decided to", "fixed", "error:", URLs, file paths, tech stack mentions, etc.
+  - Deduplication via substring overlap and character-level Jaccard similarity (threshold 0.7)
+  - Limits output to 5 extractions per call
+- `saveSessionMemories(sessionId, memories)`: Persists to DB with dedup check (first 40 chars of content), increments accessCount for duplicates, creates new records for unique content
+- `getSessionMemories(sessionId, options)`: Queries DB filtered by layer='session', importance >= minImportance (default 5), ordered by importance DESC then accessCount DESC, limited to maxCount (default 10)
+- `buildMemoryContext(memories)`: Formats memories as markdown list for system prompt injection
+
+**File 2 — `src/lib/memory/memdir.ts`** (~310 lines):
+- `MemdirEntry` interface with category, content, source, updatedAt fields
+- `CATEGORY_SECTION_TITLES`: Maps 6 categories to section headers for MEMORY.md
+- `parseMemdirMarkdown(content)`: Parses MEMORY.md `## Section` / `- item` format into MemdirEntry[]
+- `buildMemdirMarkdown(entries)`: Rebuilds MEMORY.md with auto-generated header (timestamp) and categorized sections
+- `readMemdirFile(projectRoot)` / `writeMemdirFile(projectRoot, content)`: File I/O with MAX_LINES (200) and MAX_MEMDIR_SIZE (25KB) enforcement
+- `loadMemdir(projectRoot)`: Reads MEMORY.md first, falls back to DB (layer='memdir'), returns entries sorted by updatedAt DESC
+- `saveMemdirEntry(entry, projectRoot)`: Checks for similar existing entry, updates or creates in DB, syncs all memdir entries to MEMORY.md if projectRoot provided
+- `extractMemdirFromConversation(messages)`: Heuristic extraction for project-level knowledge (conventions, decisions, architecture, preferences), limited to 3 entries per call
+- `buildMemdirContext(entries)`: Formats entries as categorized markdown sections for system prompt
+
+**File 3 — `src/lib/memory/memory-manager.ts`** (~95 lines):
+- `processConversationForMemory(sessionId, messages, projectRoot)`: Orchestrates full extraction pipeline — extracts session memories from last 10 messages, extracts memdir entries from full conversation, saves both to DB, returns counts
+- `buildFullMemoryContext(sessionId, projectRoot)`: Combines session memories + memdir entries into single context string for system prompt
+- `getMemoryStats()`: Returns aggregate stats (sessionMemories count, memdirEntries count, magicDocs count, totalAccessCount) via parallel DB queries
+- Re-exports all sub-module functions for convenient importing
+
+**File 4 — Updated `src/app/api/memory/route.ts`** (~180 lines):
+- Expanded VALID_LAYERS: `["session", "memdir", "magic-doc", "magic_doc", "team-sync", "team"]` (backward compatible with snake_case)
+- Expanded VALID_CATEGORIES: added "fact", "task", "convention", "architecture" (now 10 categories total)
+- GET: Added `sessionId` as alternative to `session_id` query param, added `minImportance` filter, added `?action=stats` endpoint for memory statistics
+- POST: Added `?action=process` endpoint for batch conversation memory processing (calls `processConversationForMemory`)
+- POST: Added category validation, importance range clamping (1-10), robust tags handling (accepts array or JSON string)
+- GET: Tags are now parsed from JSON before returning to client
+
+**Verification:**
+- ESLint: 0 errors, 0 warnings
+- Dev server: compiling and serving successfully (200 responses)
+- All files server-side only (no 'use client')
+- No AI calls used for extraction — purely heuristic/regex-based, fast and deterministic
+- No new packages installed
+---
+## Task ID: v3.5.0-agentic-loop
+### Agent: Integration Agent
+### Work Task
+Integrate v3.5.0 memory and compression systems into the CodeBot agentic loop in `src/app/api/chat/stream/route.ts`.
+
+### Work Summary
+
+**File Modified:** `src/app/api/chat/stream/route.ts`
+
+**4 Integration Points Implemented:**
+
+1. **Memory Context in System Prompt** (lines 267-269):
+   - Imported `buildFullMemoryContext` from `@/lib/memory/memory-manager`
+   - Called `buildFullMemoryContext(sessionId)` before building chatMessages
+   - Appended memory context string to `SYSTEM_PROMPT` to create `enhancedSystemPrompt`
+   - Enhanced system prompt is used as the first message in the chat array
+
+2. **Pre-Loop Compression** (lines 280-293):
+   - Imported `compressMessages`, `needsCompression`, `DEFAULT_COMPRESSION_CONFIG` from `@/lib/compression`
+   - Changed `chatMessages` from `const` to `let` to allow reassignment
+   - Before the agentic loop, filters conversation messages (excludes system prompt)
+   - Calls `needsCompression()` to check if conversation exceeds 65K token threshold
+   - If needed, calls `compressMessages()` which auto-selects snip/auto strategy
+   - Rebuilds chatMessages with system messages preserved + compressed conversation
+   - Logs compression stats (compressed count, ratio)
+
+3. **Responsive Compression on Error** (lines 331-372):
+   - Wrapped `runAgenticStep()` call in try-catch inside the while loop
+   - Detects "prompt too long" / "maximum" errors by checking error message strings
+   - On detection: calls `compressMessages()` with `{ force: 'responsive' }` option
+   - Preserves enhanced system prompt (`chatMessages[0]`)
+   - Retries the agentic step with compressed messages
+   - Non-prompt errors are re-thrown normally
+   - Logs compression stats on responsive trigger
+
+4. **Memory Extraction After Loop** (lines 415-423):
+   - Imported `processConversationForMemory` from `@/lib/memory/memory-manager`
+   - After the while loop ends (before streaming final content), calls memory extraction
+   - Fire-and-forget pattern: wrapped in try-catch that logs errors without breaking response
+   - Logs extraction results (session memories count, memdir entries count)
+
+**Design Decisions:**
+- Compression applies ONLY to conversation messages, never the system prompt
+- Memory context is injected BEFORE compression so it's always in the system prompt
+- Memory extraction is fire-and-forget (non-blocking, error-tolerant)
+- Responsive compression keeps the enhanced system prompt intact
+- All changes are localized to the single route.ts file
+
+**Verification:**
+- ESLint: 0 errors, 0 warnings
+- Dev server: compiling and serving successfully
+- No new packages installed
+---
+## Task ID: 6
+### Agent: MemoryView Rewrite Agent
+### Work Task
+Rewrite MemoryView component to replace all mock data with real API calls to the backend memory system.
+
+### Work Summary
+
+**Pre-existing Infrastructure Analyzed:**
+- Memory API routes: GET/POST `/api/memory`, GET/PUT/DELETE `/api/memory/[id]`, POST `/api/memory/dream`, POST `/api/memory/compact`
+- Memory model in Prisma: id, sessionId, layer, category, content, filePath, tags (JSON string), importance, accessCount, expiresAt, createdAt, updatedAt
+- Memory stats API: `GET /api/memory?action=stats` returns `{ sessionMemories, memdirEntries, magicDocs, totalAccessCount }`
+- Dream API: `POST /api/memory/dream` consolidates memories using AI chat completion
+- Process API: `POST /api/memory?action=process` extracts memories from conversation messages
+
+**Changes to `src/components/codebot/MemoryView.tsx` (complete rewrite, ~1118 lines):**
+
+1. **Removed all mock data** — Deleted `MOCK_SESSION_MEMORIES`, `MOCK_MEMDIR_ITEMS`, `MOCK_MAGIC_DOCS`, `MOCK_TEAM_SYNC` arrays and all associated interfaces (`SessionMemoryItem`, `MemdirItem`, `MagicDocItem`, `TeamSyncItem`)
+
+2. **Replaced with real API data fetching:**
+   - `loadMemories(tab?, signal?)`: Fetches from `GET /api/memory?layer=<layer>&limit=100`, maps response to `MemoryItem[]` with parsed tags
+   - `loadStats(signal?)`: Fetches from `GET /api/memory?action=stats`, maps to `MemoryStats` interface
+   - Initial load on mount with AbortController for cleanup
+   - Tab change triggers reload of memories for selected layer
+   - Manual refresh button calls both loadMemories and loadStats
+
+3. **Added new actions:**
+   - **Refresh**: Reloads memories and stats with spinning icon animation
+   - **Dream**: POSTs to `/api/memory/dream` to trigger knowledge distillation, shows success toast with consolidation count
+   - **Extract**: POSTs to `/api/memory?action=process` for conversation memory extraction
+   - **Delete Memory**: DELETE to `/api/memory/[id]` with per-button loading state, removes from local state on success
+   - **Add Memory**: POST to `/api/memory` with layer, content, category, importance, tags; includes layer selector, textarea content input, category dropdown (10 categories), importance selector, tags input
+
+4. **Updated UI structure:**
+   - Replaced `team-sync` tab with `dream` tab (maps to `dream` layer in API)
+   - Stats bar shows: Total count, Session count, Memdir count, Magic Docs count, Dream count, Total accesses
+   - Each tab shows item count in card header
+   - Increased scrollable area height from `max-h-96` to `max-h-[500px]`
+   - Magic Docs tab shows content truncated to 300 chars with `whitespace-pre-wrap`
+   - Dream tab has purple-tinted card styling (`border-purple-500/10 bg-purple-500/[0.02]`)
+   - Dream tab content truncated to 500 chars
+
+5. **Added loading/empty states:**
+   - `MemorySkeleton` component: 3 animated pulse cards with proper skeleton styling
+   - `EmptyState` component: icon, title, description for each tab when no data
+
+6. **Added search with highlighting:**
+   - `highlightMatch()` function renders matched text with emerald highlight background
+   - Search filters across content, category, filePath, and tags
+
+7. **Category badge colors (10 categories):**
+   - preference → emerald, pattern → cyan, decision → amber, fact → sky, error → red, task → purple, convention → lime, architecture → orange, context → violet, knowledge → indigo
+
+8. **Removed dependencies:**
+   - Removed `useChatStore` import (no longer reads from Zustand store)
+   - Removed `MagicDocEntry` type import
+   - Removed `Users` icon (team-sync tab replaced with dream)
+   - Added: `RefreshCw`, `Loader2`, `Moon`, `Zap`, `Eye`, `useRef`, `useMemo`, `toast`
+
+9. **Architecture info section updated:**
+   - Team Sync (L4) replaced with Dream (L4) with Moon icon and purple styling
+   - Each layer card now shows actual count from stats API
+
+**Verification:**
+- ESLint: 0 errors, 0 warnings
+- No new packages installed
+- Dev server compiling and serving successfully
+- Dream API tested: POST /api/memory/dream returned 200 in 490ms
