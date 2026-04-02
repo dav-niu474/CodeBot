@@ -32,6 +32,7 @@ import {
   Hash,
   Layers,
   ArrowLeftRight,
+  Loader2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -90,6 +91,85 @@ const templateColorMap: Record<string, string> = {
   fuchsia: 'text-fuchsia-400 hover:bg-fuchsia-500/10',
 };
 
+// ────────────────────────────────────────────
+// Agentic Loop Status Types
+// ────────────────────────────────────────────
+
+type AgenticPhase = 'idle' | 'thinking' | 'executing_tools' | 'generating' | 'compressing';
+
+interface AgenticStatus {
+  phase: AgenticPhase;
+  detail?: string;
+  toolName?: string;
+  loopIteration?: number;
+}
+
+const phaseConfig: Record<AgenticPhase, { icon: string; label: string; colorClass: string; bgClass: string; borderClass: string }> = {
+  idle: { icon: '', label: '', colorClass: '', bgClass: '', borderClass: '' },
+  thinking: {
+    icon: '🧠',
+    label: 'Thinking...',
+    colorClass: 'text-amber-400',
+    bgClass: 'bg-amber-500/5',
+    borderClass: 'border-amber-500/20',
+  },
+  executing_tools: {
+    icon: '🔧',
+    label: 'Executing tool',
+    colorClass: 'text-sky-400',
+    bgClass: 'bg-sky-500/5',
+    borderClass: 'border-sky-500/20',
+  },
+  generating: {
+    icon: '✍️',
+    label: 'Generating response...',
+    colorClass: 'text-emerald-400',
+    bgClass: 'bg-emerald-500/5',
+    borderClass: 'border-emerald-500/20',
+  },
+  compressing: {
+    icon: '📦',
+    label: 'Compressing context...',
+    colorClass: 'text-purple-400',
+    bgClass: 'bg-purple-500/5',
+    borderClass: 'border-purple-500/20',
+  },
+};
+
+// ────────────────────────────────────────────
+// Helper: Create a new session via API
+// ────────────────────────────────────────────
+
+async function createSessionAPI(
+  model: string,
+  title?: string
+): Promise<Session | null> {
+  try {
+    const res = await fetch('/api/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: title || 'New Chat',
+        model,
+      }),
+    });
+    const data = await res.json();
+    if (data.error) return null;
+    return {
+      id: data.id,
+      title: data.title,
+      model: data.model,
+      systemPrompt: data.systemPrompt,
+      isActive: data.isActive,
+      tokenCount: 0,
+      createdAt: data.createdAt,
+      updatedAt: data.updatedAt,
+    } as Session;
+  } catch {
+    return null;
+  }
+}
+
 export function ChatView() {
   const {
     activeSessionId,
@@ -120,10 +200,14 @@ export function ChatView() {
   const [sessionPanelOpen, setSessionPanelOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
+  const [agenticStatus, setAgenticStatus] = useState<AgenticStatus>({ phase: 'idle' });
+  const [streamingCharsPerSec, setStreamingCharsPerSec] = useState<number | null>(null);
+  const [isTextareaFocused, setIsTextareaFocused] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const abortControllerRef = useRef<AbortController>(null);
 
   // Filter sessions by search query
   const filteredSessions = useMemo(() => {
@@ -189,15 +273,22 @@ export function ChatView() {
     return () => window.removeEventListener('quick-action', handler);
   }, []);
 
+  // Cleanup streaming speed on unmount
+  useEffect(() => {
+    return () => {
+      setStreamingCharsPerSec(null);
+    };
+  }, []);
+
   const sendToAPI = useCallback(
-    async (userMessage: string) => {
+    async (userMessage: string, sessionId: string) => {
       setLoading(true);
 
       // Create placeholder assistant message for streaming
       const streamMsgId = `msg-stream-${Date.now()}`;
       const streamMsg: Message = {
         id: streamMsgId,
-        sessionId: activeSessionId || '',
+        sessionId,
         role: 'assistant',
         content: '',
         toolCalls: null,
@@ -209,6 +300,10 @@ export function ChatView() {
       };
       addMessage(streamMsg);
       setStreamingMessageId(streamMsgId);
+
+      // Reset agentic status
+      setAgenticStatus({ phase: 'idle' });
+      setStreamingCharsPerSec(null);
 
       // Track V3 tool call displays
       const toolCallDisplays: Array<{
@@ -222,7 +317,28 @@ export function ChatView() {
         startedAt?: string;
         completedAt?: string;
       }> = [];
-      let isV3Protocol = false;
+
+      // ── AbortController ─────────────────
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      // Streaming speed tracking
+      let lastContentLength = 0;
+      let lastSpeedTime = Date.now();
+      const speedInterval = setInterval(() => {
+        const now = Date.now();
+        const currentMsg = useChatStore.getState().messages.find(m => m.id === streamMsgId);
+        const currentLength = currentMsg?.content?.length || 0;
+        const elapsed = (now - lastSpeedTime) / 1000;
+        if (elapsed > 0.5) {
+          const charsPerSec = Math.round((currentLength - lastContentLength) / elapsed);
+          if (charsPerSec > 0 && currentLength > 0) {
+            setStreamingCharsPerSec(charsPerSec);
+          }
+          lastContentLength = currentLength;
+          lastSpeedTime = now;
+        }
+      }, 600);
 
       // Helper to update toolCallsDisplay on the message
       const syncToolDisplays = () => {
@@ -238,13 +354,14 @@ export function ChatView() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            sessionId: activeSessionId,
+            sessionId,
             message: userMessage,
             model: selectedModel || agentConfig.activeModel,
             thinkingEnabled: agentConfig.thinkingEnabled,
             temperature: agentConfig.temperature,
             maxTokens: agentConfig.maxTokens,
           }),
+          signal: controller.signal,
         });
 
         if (!res.ok) {
@@ -254,6 +371,7 @@ export function ChatView() {
 
         let fullContent = '';
         let fullThinking = '';
+        let firstContentReceived = false;
 
         // Check if response is NOT SSE format
         const contentType = res.headers.get('content-type') || '';
@@ -292,10 +410,24 @@ export function ChatView() {
                   }
 
                   // ── V3 Protocol Events ────────────────────
-                  if (data.v3) isV3Protocol = true;
+
+                  // Loop iteration indicator
+                  if (data.type === 'loop_iteration') {
+                    setAgenticStatus({
+                      phase: 'thinking',
+                      detail: 'Analyzing...',
+                      loopIteration: data.iteration,
+                    });
+                    continue;
+                  }
 
                   // Tool call start — show executing state
                   if (data.type === 'tool_call_start') {
+                    setAgenticStatus({
+                      phase: 'executing_tools',
+                      detail: 'Executing tool...',
+                      toolName: data.toolName,
+                    });
                     const newTc = {
                       toolCallId: data.toolCallId,
                       toolName: data.toolName,
@@ -311,7 +443,6 @@ export function ChatView() {
 
                   // Tool call progress — update status text
                   if (data.type === 'tool_call_progress') {
-                    // Could add progress indicator, for now just keep executing state
                     continue;
                   }
 
@@ -327,11 +458,7 @@ export function ChatView() {
                       tc.completedAt = new Date().toISOString();
                     }
                     syncToolDisplays();
-                    continue;
-                  }
-
-                  // Loop iteration indicator
-                  if (data.type === 'loop_iteration') {
+                    // Keep in executing_tools phase if more tools may come
                     continue;
                   }
 
@@ -340,6 +467,9 @@ export function ChatView() {
                   if (data.reasoning) {
                     fullThinking += data.reasoning;
                     updateMessage(streamMsgId, { thinkingContent: fullThinking });
+                    if (!firstContentReceived) {
+                      setAgenticStatus({ phase: 'thinking', detail: 'Reasoning...' });
+                    }
                   }
                   // Handle legacy tool_calls (V2 format)
                   if (data.tool_calls) {
@@ -351,10 +481,15 @@ export function ChatView() {
                     updateMessage(streamMsgId, { toolCalls: updatedCalls });
                   }
                   if (data.content) {
+                    if (!firstContentReceived) {
+                      firstContentReceived = true;
+                      setAgenticStatus({ phase: 'generating', detail: 'Generating response...' });
+                    }
                     fullContent += data.content;
                     updateMessage(streamMsgId, { content: fullContent });
                   }
                   if (data.done) {
+                    setAgenticStatus({ phase: 'idle' });
                     updateMessage(streamMsgId, {
                       isStreaming: false,
                       tokens: data.tokens || 0,
@@ -368,6 +503,10 @@ export function ChatView() {
                     const rawText = payload.replace(/^["']|["']$/g, '');
                     if (rawText) {
                       fullContent += rawText + '\n';
+                      if (!firstContentReceived) {
+                        firstContentReceived = true;
+                        setAgenticStatus({ phase: 'generating', detail: 'Generating response...' });
+                      }
                       updateMessage(streamMsgId, { content: fullContent });
                     }
                   }
@@ -376,6 +515,10 @@ export function ChatView() {
                 try {
                   const data = JSON.parse(trimmed);
                   if (data.content) {
+                    if (!firstContentReceived) {
+                      firstContentReceived = true;
+                      setAgenticStatus({ phase: 'generating', detail: 'Generating response...' });
+                    }
                     fullContent += data.content;
                     updateMessage(streamMsgId, { content: fullContent });
                   }
@@ -387,6 +530,10 @@ export function ChatView() {
                   updateMessage(streamMsgId, { content: fullContent });
                 }
               } else {
+                if (!firstContentReceived) {
+                  firstContentReceived = true;
+                  setAgenticStatus({ phase: 'generating', detail: 'Generating response...' });
+                }
                 fullContent += trimmed + '\n';
                 updateMessage(streamMsgId, { content: fullContent });
               }
@@ -419,16 +566,25 @@ export function ChatView() {
           }
         }
       } catch (err) {
-        updateMessage(streamMsgId, {
-          content: `Sorry, an error occurred: ${err instanceof Error ? err.message : 'Unknown error'}. Please try again.`,
-          isStreaming: false,
-        });
+        // If aborted, don't show error — just finalize
+        if (controller.signal.aborted) {
+          updateMessage(streamMsgId, { isStreaming: false });
+        } else {
+          updateMessage(streamMsgId, {
+            content: `Sorry, an error occurred: ${err instanceof Error ? err.message : 'Unknown error'}. Please try again.`,
+            isStreaming: false,
+          });
+        }
       } finally {
+        clearInterval(speedInterval);
+        abortControllerRef.current = null;
+        setStreamingCharsPerSec(null);
+        setAgenticStatus({ phase: 'idle' });
         setStreamingMessageId(null);
         setLoading(false);
       }
     },
-    [activeSessionId, addMessage, updateMessage, setLoading, setStreamingMessageId, selectedModel, agentConfig]
+    [addMessage, updateMessage, setLoading, setStreamingMessageId, selectedModel, agentConfig]
   );
 
   const sendImageToAPI = useCallback(
@@ -487,9 +643,23 @@ export function ChatView() {
       if (!trimmed && !attachedImage) return;
       if (isLoading) return;
 
+      // ── Auto-create session if none active ───
+      let sessionId = activeSessionId;
+      if (!sessionId) {
+        const session = await createSessionAPI(selectedModel || agentConfig.activeModel, trimmed.slice(0, 60));
+        if (!session) {
+          toast.error('Failed to create session');
+          return;
+        }
+        addSession(session);
+        sessionId = session.id;
+        // Small delay for store to update
+        await new Promise(r => setTimeout(r, 50));
+      }
+
       const userMsg: Message = {
         id: `msg-${Date.now()}`,
-        sessionId: activeSessionId || '',
+        sessionId,
         role: 'user',
         content: attachedImage
           ? `${trimmed ? trimmed + '\n' : ''}[IMAGE]${attachedImage.preview}`
@@ -513,10 +683,10 @@ export function ChatView() {
         setAttachedImage(null);
         await sendImageToAPI(trimmed, imageFile);
       } else {
-        await sendToAPI(trimmed);
+        await sendToAPI(trimmed, sessionId);
       }
     },
-    [input, isLoading, activeSessionId, addMessage, sendToAPI, sendImageToAPI, attachedImage]
+    [input, isLoading, activeSessionId, addMessage, sendToAPI, sendImageToAPI, attachedImage, selectedModel, agentConfig, addSession]
   );
 
   const handleKeyDown = useCallback(
@@ -560,8 +730,14 @@ export function ChatView() {
   }, [messages, agentConfig, selectedModel, activeMode]);
 
   const handleStop = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
     setLoading(false);
     setStreamingMessageId(null);
+    setAgenticStatus({ phase: 'idle' });
+    setStreamingCharsPerSec(null);
   }, [setLoading, setStreamingMessageId]);
 
   const handleImageSelect = useCallback(
@@ -741,6 +917,9 @@ export function ChatView() {
     dream: 'border-pink-500/20 bg-pink-500/10',
   };
 
+  const hasInput = input.trim().length > 0 || attachedImage !== null;
+  const showCharCount = input.length > 200;
+
   return (
     <>
       {/* ─── Session Panel Backdrop ─── */}
@@ -897,246 +1076,334 @@ export function ChatView() {
         </div>
       </motion.div>
 
-      {/* ─── Main Content ─── */}
-      {!activeSessionId ? (
-        <WelcomeState />
-      ) : (
-        <div className="flex h-full flex-col">
-          {/* Header */}
-          <div className="flex items-center gap-3 border-b border-border/50 px-4 py-3">
-            <div className="flex items-center gap-2">
-              <span className="text-lg">{agentConfig.avatar}</span>
-              <div className="flex flex-col">
-                <span className="text-sm font-medium text-foreground">
-                  {agentConfig.agentName}
+      {/* ─── Main Content (always show layout) ─── */}
+      <div className="flex h-full flex-col">
+        {/* Header */}
+        <div className="flex items-center gap-3 border-b border-border/50 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">{agentConfig.avatar}</span>
+            <div className="flex flex-col">
+              <span className="text-sm font-medium text-foreground">
+                {agentConfig.agentName}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]" />
+                <span className="text-[10px] text-muted-foreground">
+                  {activeSessionId ? `Online · ${messages.length} messages` : 'Online · Ready'}
                 </span>
-                <div className="flex items-center gap-1.5">
-                  <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]" />
-                  <span className="text-[10px] text-muted-foreground">
-                    Online · {messages.length} messages
-                  </span>
-                </div>
               </div>
             </div>
-            <div className="ml-auto flex items-center gap-2">
-              {/* Session Manager */}
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  'h-8 w-8 rounded-lg transition-all',
-                  sessionPanelOpen
-                    ? 'bg-emerald-500/15 text-emerald-400'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-emerald-500/10'
-                )}
-                onClick={() => setSessionPanelOpen((v) => !v)}
-                title="Session Manager"
-              >
-                <History className="h-4 w-4" />
-              </Button>
-
-              {/* Templates Quick Access */}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-emerald-500/10"
-                onClick={() => {
-                  setSessionPanelOpen(true);
-                  // Scroll to templates after panel opens
-                  setTimeout(() => {
-                    const panel = document.querySelector('[data-templates-section]');
-                    panel?.scrollIntoView({ behavior: 'smooth' });
-                  }, 350);
-                }}
-                title="Templates"
-              >
-                <LayoutTemplate className="h-4 w-4" />
-              </Button>
-
-              {/* Export Chat */}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-emerald-500/10"
-                onClick={handleExportChat}
-                title="Export Chat"
-              >
-                <Download className="h-4 w-4" />
-              </Button>
-
-              {/* Thinking Mode Toggle */}
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  'h-8 w-8 rounded-lg transition-all',
-                  agentConfig.thinkingEnabled
-                    ? 'bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30 shadow-[0_0_12px_rgba(245,158,11,0.15)]'
-                    : 'text-muted-foreground hover:text-foreground'
-                )}
-                onClick={() =>
-                  setAgentConfig({ thinkingEnabled: !agentConfig.thinkingEnabled })
-                }
-                title={agentConfig.thinkingEnabled ? 'Disable Thinking Mode' : 'Enable Thinking Mode'}
-              >
-                <Brain className="h-4 w-4" />
-              </Button>
-
-              {agentConfig.thinkingEnabled && (
-                <Badge
-                  variant="outline"
-                  className="gap-1 border-amber-500/20 bg-amber-500/10 text-[10px] text-amber-400"
-                >
-                  🧠 Thinking
-                </Badge>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            {/* Session Manager */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                'h-8 w-8 rounded-lg transition-all',
+                sessionPanelOpen
+                  ? 'bg-emerald-500/15 text-emerald-400'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-emerald-500/10'
               )}
+              onClick={() => setSessionPanelOpen((v) => !v)}
+              title="Session Manager"
+            >
+              <History className="h-4 w-4" />
+            </Button>
 
+            {/* Templates Quick Access */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-emerald-500/10"
+              onClick={() => {
+                setSessionPanelOpen(true);
+                setTimeout(() => {
+                  const panel = document.querySelector('[data-templates-section]');
+                  panel?.scrollIntoView({ behavior: 'smooth' });
+                }, 350);
+              }}
+              title="Templates"
+            >
+              <LayoutTemplate className="h-4 w-4" />
+            </Button>
+
+            {/* Export Chat */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-emerald-500/10"
+              onClick={handleExportChat}
+              title="Export Chat"
+            >
+              <Download className="h-4 w-4" />
+            </Button>
+
+            {/* Thinking Mode Toggle */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                'h-8 w-8 rounded-lg transition-all',
+                agentConfig.thinkingEnabled
+                  ? 'bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30 shadow-[0_0_12px_rgba(245,158,11,0.15)]'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+              onClick={() =>
+                setAgentConfig({ thinkingEnabled: !agentConfig.thinkingEnabled })
+              }
+              title={agentConfig.thinkingEnabled ? 'Disable Thinking Mode' : 'Enable Thinking Mode'}
+            >
+              <Brain className="h-4 w-4" />
+            </Button>
+
+            {agentConfig.thinkingEnabled && (
               <Badge
                 variant="outline"
-                className={cn('gap-1 text-[10px]', modeBgColors[activeMode] || 'border-border/50', modeColors[activeMode] || 'text-muted-foreground')}
+                className="gap-1 border-amber-500/20 bg-amber-500/10 text-[10px] text-amber-400"
               >
-                {activeMode}
+                🧠 Thinking
               </Badge>
+            )}
+
+            <Badge
+              variant="outline"
+              className={cn('gap-1 text-[10px] hidden sm:inline-flex', modeBgColors[activeMode] || 'border-border/50', modeColors[activeMode] || 'text-muted-foreground')}
+            >
+              {activeMode}
+            </Badge>
+            <Badge
+              variant="outline"
+              className="gap-1 border-emerald-500/20 bg-emerald-500/10 text-[10px] text-emerald-400"
+            >
+              <Zap className="h-3 w-3" />
+              <span className="hidden sm:inline">{shortModelName}</span>
+            </Badge>
+            {activeSessionId && (
               <Badge
                 variant="outline"
-                className="gap-1 border-emerald-500/20 bg-emerald-500/10 text-[10px] text-emerald-400"
-              >
-                <Zap className="h-3 w-3" />
-                {shortModelName}
-              </Badge>
-              <Badge
-                variant="outline"
-                className="border-border/50 text-[10px] text-muted-foreground"
+                className="hidden sm:inline-flex border-border/50 text-[10px] text-muted-foreground"
               >
                 {messages.reduce((acc, m) => acc + m.tokens, 0).toLocaleString()} tokens
               </Badge>
-            </div>
+            )}
           </div>
+        </div>
 
-          {/* Messages */}
-          <div className="flex-1 overflow-hidden">
-            <div
-              ref={scrollRef}
-              className="h-full overflow-y-auto"
-            >
-              {messages.length === 0 ? (
-                <WelcomeState />
-              ) : (
-                <div className="py-4">
-                  <AnimatePresence mode="popLayout">
-                    {messages.map((msg) => (
-                      <MessageBubble
-                        key={msg.id}
-                        message={msg}
-                        isStreaming={streamingMessageId === msg.id}
-                      />
-                    ))}
-                  </AnimatePresence>
-                  {isLoading && !streamingMessageId && <MessageListLoading />}
-                  <div ref={messagesEndRef} />
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Input Area */}
-          <div className="border-t border-border/50 bg-card/50 p-4">
-            <form onSubmit={handleSend} className="relative mx-auto max-w-4xl">
-              {/* Image Preview */}
-              {attachedImage && (
-                <div className="mb-2 flex items-center gap-2">
-                  <div className="relative h-16 w-16 overflow-hidden rounded-lg border border-border/50 bg-card">
-                    <img
-                      src={attachedImage.preview}
-                      alt="Attached"
-                      className="h-full w-full object-cover"
+        {/* Messages Area */}
+        <div className="flex-1 overflow-hidden">
+          <div
+            ref={scrollRef}
+            className="h-full overflow-y-auto"
+          >
+            {activeSessionId && messages.length === 0 ? (
+              <WelcomeState />
+            ) : !activeSessionId ? (
+              <WelcomeState />
+            ) : (
+              <div className="py-4">
+                <AnimatePresence mode="popLayout">
+                  {messages.map((msg) => (
+                    <MessageBubble
+                      key={msg.id}
+                      message={msg}
+                      isStreaming={streamingMessageId === msg.id}
                     />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <span className="text-xs font-medium text-foreground">
-                      {attachedImage.file.name}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground">
-                      {(attachedImage.file.size / 1024).toFixed(1)} KB
-                    </span>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="ml-auto h-7 w-7 rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                    onClick={() => setAttachedImage(null)}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              )}
+                  ))}
+                </AnimatePresence>
+                {isLoading && !streamingMessageId && <MessageListLoading />}
+                <div ref={messagesEndRef} />
+              </div>
+            )}
+          </div>
+        </div>
 
-              <div className="flex items-end gap-2 rounded-xl border border-border/50 bg-card ring-1 ring-border/30 focus-within:ring-emerald-500/30 focus-within:border-emerald-500/30 transition-all">
-                {/* Image Upload Button */}
+        {/* ─── Agentic Loop Status Indicator ─── */}
+        <AnimatePresence>
+          {agenticStatus.phase !== 'idle' && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.25 }}
+              className="overflow-hidden"
+            >
+              <div className={cn(
+                'mx-auto flex max-w-4xl items-center gap-3 border-t px-4 py-2',
+                phaseConfig[agenticStatus.phase].borderClass,
+                phaseConfig[agenticStatus.phase].bgClass,
+              )}>
+                <div className="relative flex items-center justify-center">
+                  <Loader2 className={cn(
+                    'h-4 w-4 animate-spin',
+                    phaseConfig[agenticStatus.phase].colorClass,
+                  )} />
+                </div>
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <span className={cn(
+                    'text-xs font-medium',
+                    phaseConfig[agenticStatus.phase].colorClass,
+                  )}>
+                    {phaseConfig[agenticStatus.phase].icon}{' '}
+                    {agenticStatus.toolName
+                      ? `${phaseConfig[agenticStatus.phase].label}: ${agenticStatus.toolName}`
+                      : agenticStatus.loopIteration
+                        ? `${phaseConfig[agenticStatus.phase].label} (loop ${agenticStatus.loopIteration})`
+                        : phaseConfig[agenticStatus.phase].label
+                    }
+                  </span>
+                  {agenticStatus.loopIteration && agenticStatus.loopIteration > 1 && (
+                    <Badge
+                      variant="outline"
+                      className="gap-1 border-zinc-700/50 bg-zinc-800/50 px-1.5 py-0 text-[9px] text-zinc-400"
+                    >
+                      Iteration {agenticStatus.loopIteration}
+                    </Badge>
+                  )}
+                </div>
+                {/* Streaming speed indicator */}
+                {agenticStatus.phase === 'generating' && streamingCharsPerSec !== null && streamingCharsPerSec > 0 && (
+                  <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/50">
+                    {streamingCharsPerSec} chars/s
+                  </span>
+                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={handleStop}
+                  className="h-6 gap-1.5 shrink-0 rounded-md px-2 text-[10px] font-medium text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                >
+                  <Square className="h-2.5 w-2.5 fill-current" />
+                  Stop
+                </Button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* ─── Input Area (always visible) ─── */}
+        <div className="border-t border-border/50 bg-card/50 p-4">
+          <form onSubmit={handleSend} className="relative mx-auto max-w-4xl">
+            {/* Image Preview */}
+            {attachedImage && (
+              <div className="mb-2 flex items-center gap-2">
+                <div className="relative h-16 w-16 overflow-hidden rounded-lg border border-border/50 bg-card">
+                  <img
+                    src={attachedImage.preview}
+                    alt="Attached"
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs font-medium text-foreground">
+                    {attachedImage.file.name}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {(attachedImage.file.size / 1024).toFixed(1)} KB
+                  </span>
+                </div>
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="m-1.5 h-8 w-8 shrink-0 rounded-lg text-muted-foreground hover:text-foreground hover:bg-emerald-500/10"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isLoading}
-                  title="Attach image"
+                  className="ml-auto h-7 w-7 rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => setAttachedImage(null)}
                 >
-                  <ImagePlus className="h-4 w-4" />
+                  <X className="h-3.5 w-3.5" />
                 </Button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleImageSelect}
-                />
+              </div>
+            )}
 
-                <Textarea
-                  ref={textareaRef}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Send a message to CodeBot..."
-                  className="min-h-[44px] max-h-[160px] flex-1 resize-none border-0 bg-transparent px-2 py-3 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
-                  rows={1}
-                  disabled={isLoading}
-                />
-                {isLoading ? (
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    onClick={handleStop}
-                    className="m-1.5 h-8 w-8 shrink-0 rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                  >
-                    <Square className="h-3.5 w-3.5" />
-                  </Button>
-                ) : (
-                  <Button
-                    type="submit"
-                    size="icon"
-                    disabled={!input.trim() && !attachedImage}
-                    className="m-1.5 h-8 w-8 shrink-0 rounded-lg bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-30"
-                  >
-                    <SendHorizontal className="h-4 w-4" />
-                  </Button>
-                )}
-              </div>
-              <div className="mt-2 flex items-center justify-between px-1">
-                <span className="text-[10px] text-muted-foreground/40">
-                  Press Enter to send · Shift+Enter for new line
+            <div className={cn(
+              'flex items-end gap-2 rounded-xl border bg-card transition-all duration-200',
+              // Default border
+              !isTextareaFocused && !hasInput && 'border-border/50 ring-1 ring-border/30',
+              // Focused: emerald glow
+              isTextareaFocused && !hasInput && 'border-emerald-500/40 ring-1 ring-emerald-500/20 shadow-[0_0_20px_rgba(16,185,129,0.06)]',
+              // Has content: stronger emerald glow
+              hasInput && 'border-emerald-500/30 ring-1 ring-emerald-500/20 shadow-[0_0_24px_rgba(16,185,129,0.08)]',
+              // Loading state
+              isLoading && 'border-amber-500/30 ring-1 ring-amber-500/20',
+            )}>
+              {/* Image Upload Button */}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="m-1.5 h-8 w-8 shrink-0 rounded-lg text-muted-foreground hover:text-foreground hover:bg-emerald-500/10"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isLoading}
+                title="Attach image"
+              >
+                <ImagePlus className="h-4 w-4" />
+              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleImageSelect}
+              />
+
+              <Textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                onFocus={() => setIsTextareaFocused(true)}
+                onBlur={() => setIsTextareaFocused(false)}
+                placeholder="Send a message to CodeBot..."
+                className="min-h-[44px] max-h-[160px] flex-1 resize-none border-0 bg-transparent px-2 py-3 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                rows={1}
+                disabled={isLoading}
+              />
+              {showCharCount && (
+                <span className="mb-2 mr-1 shrink-0 text-[10px] tabular-nums text-muted-foreground/30">
+                  {input.length}
                 </span>
-                <span className="text-[10px] text-muted-foreground/40">
-                  {shortModelName} · {activeMode} mode
-                  {agentConfig.thinkingEnabled ? ' · Thinking' : ''} · Max: {agentConfig.maxTokens.toLocaleString()} tokens
-                </span>
-              </div>
-            </form>
-          </div>
+              )}
+              {isLoading ? (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  onClick={handleStop}
+                  className="m-1.5 h-8 w-8 shrink-0 rounded-lg bg-red-500/10 text-red-400 ring-1 ring-red-500/20 hover:bg-red-500/20 hover:text-red-300 transition-all"
+                >
+                  <Square className="h-3.5 w-3.5 fill-current" />
+                </Button>
+              ) : (
+                <Button
+                  type="submit"
+                  size="icon"
+                  disabled={!hasInput}
+                  className={cn(
+                    'm-1.5 h-8 w-8 shrink-0 rounded-lg transition-all duration-200',
+                    hasInput
+                      ? 'bg-emerald-600 text-white shadow-[0_0_16px_rgba(16,185,129,0.3)] hover:bg-emerald-500 hover:shadow-[0_0_20px_rgba(16,185,129,0.4)]'
+                      : 'bg-zinc-800 text-zinc-500 disabled:opacity-50',
+                  )}
+                >
+                  <SendHorizontal className={cn(
+                    'h-4 w-4 transition-transform duration-200',
+                    hasInput && 'translate-x-[-1px]',
+                  )} />
+                </Button>
+              )}
+            </div>
+            <div className="mt-2 flex items-center justify-between px-1">
+              <span className="text-[10px] text-muted-foreground/40">
+                Enter to send · Shift+Enter for new line
+              </span>
+              <span className="text-[10px] text-muted-foreground/40">
+                {shortModelName}
+                {agentConfig.thinkingEnabled ? ' · Thinking' : ''} · {agentConfig.maxTokens.toLocaleString()} max tokens
+              </span>
+            </div>
+          </form>
         </div>
-      )}
+      </div>
     </>
   );
 }

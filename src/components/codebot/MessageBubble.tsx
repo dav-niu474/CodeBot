@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RichContentRenderer } from './RichContentRenderer';
 import { ToolCallBlock } from './ToolCallBlock';
-import { Copy, Check, User, Brain, ChevronDown } from 'lucide-react';
+import { Copy, Check, User, Brain, ChevronDown, Wrench, BrainCircuit, Code2, Search } from 'lucide-react';
 import { useState, useCallback, useMemo } from 'react';
 
 function CopyButton({ text }: { text: string }) {
@@ -324,61 +324,179 @@ export function MessageListLoading() {
   );
 }
 
+// ────────────────────────────────────────────
+// V3 Capability Card
+// ────────────────────────────────────────────
+
+interface CapabilityCard {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  color: string;
+  bgColor: string;
+  borderColor: string;
+}
+
+function CapabilityCard({ card, index }: { card: CapabilityCard; index: number }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.3 + index * 0.08, duration: 0.3 }}
+      className={cn(
+        'rounded-xl border p-4 transition-all hover:shadow-lg',
+        card.borderColor,
+        'bg-card/80',
+      )}
+    >
+      <div className={cn(
+        'mb-3 flex h-9 w-9 items-center justify-center rounded-lg',
+        card.bgColor,
+      )}>
+        {card.icon}
+      </div>
+      <h3 className="mb-1 text-sm font-semibold text-foreground">{card.title}</h3>
+      <p className="text-[11px] leading-relaxed text-muted-foreground/70">{card.description}</p>
+    </motion.div>
+  );
+}
+
+// ────────────────────────────────────────────
+// Enhanced Welcome State (V3)
+// ────────────────────────────────────────────
+
 export function WelcomeState() {
   const { agentConfig } = useChatStore();
+
   const quickActions = [
-    'Build a REST API with Express',
-    'Debug this React component',
-    'Create a database schema',
-    'Write unit tests',
+    '帮我写一个REST API',
+    '分析这个项目的代码结构',
+    '搜索代码中的TODO注释',
+    '帮我调试一个bug',
+  ];
+
+  const capabilities: CapabilityCard[] = [
+    {
+      icon: <Wrench className="h-4.5 w-4.5 text-sky-400" />,
+      title: 'Tool Execution',
+      description: 'Execute shell commands, file operations, and code search with real-time results.',
+      color: 'text-sky-400',
+      bgColor: 'bg-sky-500/10',
+      borderColor: 'border-sky-500/15 hover:border-sky-500/30',
+    },
+    {
+      icon: <BrainCircuit className="h-4.5 w-4.5 text-amber-400" />,
+      title: 'Thinking Mode',
+      description: 'Enable reasoning models for step-by-step problem solving and code analysis.',
+      color: 'text-amber-400',
+      bgColor: 'bg-amber-500/10',
+      borderColor: 'border-amber-500/15 hover:border-amber-500/30',
+    },
+    {
+      icon: <Code2 className="h-4.5 w-4.5 text-emerald-400" />,
+      title: 'Code Generation',
+      description: 'Generate, refactor, and debug code across multiple languages and frameworks.',
+      color: 'text-emerald-400',
+      bgColor: 'bg-emerald-500/10',
+      borderColor: 'border-emerald-500/15 hover:border-emerald-500/30',
+    },
+    {
+      icon: <Search className="h-4.5 w-4.5 text-purple-400" />,
+      title: 'Smart Search',
+      description: 'Search the web for documentation, solutions, and up-to-date information.',
+      color: 'text-purple-400',
+      bgColor: 'bg-purple-500/10',
+      borderColor: 'border-purple-500/15 hover:border-purple-500/30',
+    },
   ];
 
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: 0.4 }}
-      className="flex flex-1 flex-col items-center justify-center px-6 py-16"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.5 }}
+      className="flex h-full flex-col items-center overflow-y-auto px-6 py-12"
     >
       {/* Avatar */}
-      <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-500/15 ring-1 ring-emerald-500/20 codebot-glow">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.8 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ delay: 0.1, duration: 0.4, ease: 'easeOut' }}
+        className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-500/15 ring-1 ring-emerald-500/20 codebot-glow"
+      >
         <span className="text-3xl">{agentConfig.avatar}</span>
-      </div>
+      </motion.div>
 
       {/* Title */}
-      <h2 className="mb-2 text-xl font-semibold text-foreground">
+      <motion.h2
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.15, duration: 0.3 }}
+        className="mb-1.5 text-xl font-semibold text-foreground"
+      >
         {agentConfig.agentName}
-      </h2>
-      <p className="mb-8 max-w-md text-center text-sm text-muted-foreground">
-        Your AI coding assistant. I can help you write code, debug issues, search
-        codebases, and much more.
-      </p>
+      </motion.h2>
+      <motion.p
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2, duration: 0.3 }}
+        className="mb-8 max-w-md text-center text-sm text-muted-foreground"
+      >
+        AI coding assistant with tool execution, thinking mode, and agentic workflows. Write, debug, and ship code faster.
+      </motion.p>
+
+      {/* V3 Capability Cards — 2x2 Grid */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.25, duration: 0.3 }}
+        className="mb-8 grid w-full max-w-lg grid-cols-2 gap-3 sm:gap-4"
+      >
+        {capabilities.map((card, i) => (
+          <CapabilityCard key={card.title} card={card} index={i} />
+        ))}
+      </motion.div>
 
       {/* Quick Actions */}
-      <div className="grid w-full max-w-lg grid-cols-1 gap-2 sm:grid-cols-2">
-        {quickActions.map((action, i) => (
-          <motion.button
-            key={action}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.1, duration: 0.2 }}
-            className="rounded-lg border border-border/50 bg-card px-4 py-3 text-left text-sm text-muted-foreground transition-all hover:border-emerald-500/30 hover:bg-emerald-500/5 hover:text-foreground"
-            onClick={() => {
-              const event = new CustomEvent('quick-action', { detail: action });
-              window.dispatchEvent(event);
-            }}
-          >
-            <span className="mr-2 text-emerald-400/60">→</span>
-            {action}
-          </motion.button>
-        ))}
+      <div className="mb-8 w-full max-w-lg">
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.4, duration: 0.2 }}
+          className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/40"
+        >
+          Quick Start
+        </motion.p>
+        <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
+          {quickActions.map((action, i) => (
+            <motion.button
+              key={action}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.5 + i * 0.08, duration: 0.2 }}
+              className="rounded-lg border border-border/50 bg-card px-4 py-3 text-left text-sm text-muted-foreground transition-all hover:border-emerald-500/30 hover:bg-emerald-500/5 hover:text-foreground"
+              onClick={() => {
+                const event = new CustomEvent('quick-action', { detail: action });
+                window.dispatchEvent(event);
+              }}
+            >
+              <span className="mr-2 text-emerald-400/60">→</span>
+              {action}
+            </motion.button>
+          ))}
+        </div>
       </div>
 
       {/* Status */}
-      <div className="mt-8 flex items-center gap-2 text-xs text-muted-foreground/50">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.8, duration: 0.3 }}
+        className="flex items-center gap-2 text-xs text-muted-foreground/50"
+      >
         <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]" />
         Ready to assist
-      </div>
+      </motion.div>
     </motion.div>
   );
 }

@@ -280,6 +280,8 @@ export async function POST(request: NextRequest) {
     // ── Pre-loop compression check ─────────────
     const conversationMessages = chatMessages.filter(m => m.role !== 'system');
     if (needsCompression(conversationMessages, DEFAULT_COMPRESSION_CONFIG)) {
+      // This runs BEFORE the SSE stream is set up, so we can't send SSE events here.
+      // The compression will be logged server-side only.
       const systemMessages = chatMessages.filter(m => m.role === 'system');
       const result = await compressMessages(conversationMessages, DEFAULT_COMPRESSION_CONFIG);
       chatMessages = [
@@ -305,15 +307,17 @@ export async function POST(request: NextRequest) {
     (async () => {
       try {
         // Send metadata
+        const tools = getCoreToolSchemas();
         sendSSE({
           type: "meta",
           model: effectiveModel,
           modelName: modelInfo?.name || effectiveModel,
           provider: modelInfo?.provider || "NVIDIA",
           v3: true, // Flag to indicate V3 protocol
+          toolCount: tools.length,
+          maxIterations: MAX_TOOL_LOOPS,
         });
 
-        const tools = getCoreToolSchemas();
         const allToolResults: Array<{
           name: string;
           result: string;
@@ -327,6 +331,14 @@ export async function POST(request: NextRequest) {
 
         while (loopCount < MAX_TOOL_LOOPS) {
           loopCount++;
+
+          // ── Send loop iteration event ──
+          sendSSE({
+            type: "loop_iteration",
+            iteration: loopCount,
+            maxIterations: MAX_TOOL_LOOPS,
+            phase: loopCount === 1 ? "thinking" : "executing",
+          });
 
           // ── Run agentic step with responsive compression fallback ──
           let step;
@@ -344,6 +356,11 @@ export async function POST(request: NextRequest) {
             const errMsg = stepErr instanceof Error ? stepErr.message : String(stepErr);
             if (errMsg.includes('prompt') && (errMsg.includes('too long') || errMsg.includes('maximum'))) {
               console.log('[compression] Responsive compression triggered by prompt-too-long error');
+              sendSSE({
+                type: "status",
+                phase: "compressing",
+                detail: "Conversation context too long, compressing...",
+              });
               const compResult = await compressMessages(
                 chatMessages.filter(m => m.role !== 'system'),
                 DEFAULT_COMPRESSION_CONFIG,
@@ -357,6 +374,11 @@ export async function POST(request: NextRequest) {
                 })),
               ];
               console.log(`[compression] Responsive compressed ${compResult.compressedCount} messages, ratio: ${(compResult.ratio * 100).toFixed(0)}%`);
+              sendSSE({
+                type: "status",
+                phase: "ready",
+                detail: "Context compressed, continuing...",
+              });
               step = await runAgenticStep(
                 chatMessages,
                 tools,
@@ -424,12 +446,12 @@ export async function POST(request: NextRequest) {
 
         // ── Stream final content to client ─────────────
         if (finalContent) {
-          // Stream in chunks for visual effect
-          const chunkSize = 16;
-          for (let i = 0; i < finalContent.length; i += chunkSize) {
-            const chunk = finalContent.substring(i, i + chunkSize);
-            sendSSE({ content: chunk });
-            await new Promise((r) => setTimeout(r, 3));
+          // Stream in natural paragraphs for better readability
+          const paragraphs = finalContent.split(/(\n\n+)/);
+          for (const para of paragraphs) {
+            if (para.trim()) {
+              sendSSE({ content: para });
+            }
           }
         } else if (loopCount >= MAX_TOOL_LOOPS) {
           sendSSE({
