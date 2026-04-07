@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -12,7 +12,7 @@ model Session {
   id           String   @id @default(cuid())
   title        String   @default("New Session")
   model        String   @default("meta/llama-3.3-70b-instruct")
-  systemPrompt String? 
+  systemPrompt String? @db.Text
   isActive     Boolean  @default(true)
   tokenCount   Int      @default(0)
   mode         String   @default("interactive")
@@ -30,14 +30,14 @@ model Message {
   id              String   @id @default(cuid())
   sessionId       String
   role            String
-  content         String   
-  toolCalls       String?  
-  toolResults     String?  
+  content         String   @db.Text
+  toolCalls       String?  @db.Text
+  toolResults     String?  @db.Text
   tokens          Int      @default(0)
   createdAt       DateTime @default(now())
   session         Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
-  thinkingContent String?  
+  thinkingContent String?  @db.Text
   modelId         String?
   toolCost        Float?
 
@@ -51,10 +51,10 @@ model AgentSession {
   role      String   @default("worker")
   status    String   @default("idle")
   parentId  String?
-  task      String?  
+  task      String?  @db.Text
   sessions  Session[]
-  config    String?  
-  result    String?  
+  config    String?  @db.Text
+  result    String?  @db.Text
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -66,15 +66,15 @@ model ToolDef {
   id           String   @id @default(cuid())
   name         String   @unique
   displayName  String
-  description  String   
+  description  String   @db.Text
   icon         String   @default("Wrench")
   category     String   @default("general")
   loadStrategy String   @default("core")
   isEnabled    Boolean  @default(true)
   isReadOnly   Boolean  @default(false)
   riskLevel    String   @default("low")
-  config       String?  
-  config2      String?  
+  config       String?  @db.Text
+  config2      String?  @db.Text
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -86,13 +86,13 @@ model SkillDef {
   id          String   @id @default(cuid())
   name        String   @unique
   displayName String
-  description String   
+  description String   @db.Text
   icon        String   @default("Sparkles")
   category    String   @default("general")
   isEnabled   Boolean  @default(true)
-  prompt      String?  
-  config      String?  
-  config2     String?  
+  prompt      String?  @db.Text
+  config      String?  @db.Text
+  config2     String?  @db.Text
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -105,7 +105,7 @@ model Memory {
   sessionId   String?
   layer       String
   category    String?
-  content     String    
+  content     String    @db.Text
   filePath    String?
   tags        String?
   importance  Int       @default(5)
@@ -122,12 +122,12 @@ model RunMode {
   id           String   @id @default(cuid())
   name         String   @unique
   displayName  String
-  description  String   
+  description  String   @db.Text
   icon         String   @default("Zap")
   category     String   @default("interactive")
   isEnabled    Boolean  @default(true)
-  config       String?  
-  featureFlags String?  
+  config       String?  @db.Text
+  featureFlags String?  @db.Text
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -138,10 +138,10 @@ model RunMode {
 model FeatureFlag {
   id          String   @id @default(cuid())
   name        String   @unique
-  description String   
+  description String   @db.Text
   isEnabled   Boolean  @default(true)
   category    String
-  config      String?  
+  config      String?  @db.Text
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -176,10 +176,10 @@ model SecurityLog {
   id        String   @id @default(cuid())
   sessionId String?
   toolName  String
-  action    String   
+  action    String   @db.Text
   riskLevel String   @default("low")
-  reason    String?  
-  command   String?  
+  reason    String?  @db.Text
+  command   String?  @db.Text
   createdAt DateTime @default(now())
 
   @@map("security_logs")
@@ -214,7 +214,7 @@ model CustomModel {
   supportsVision   Boolean  @default(false)
   category         String   @default("chat")
   isEnabled        Boolean  @default(true)
-  config           String?  
+  config           String?  @db.Text
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
