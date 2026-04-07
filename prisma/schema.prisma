@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -13,20 +7,216 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+// ============ 会话管理 ============
+model Session {
+  id           String   @id @default(cuid())
+  title        String   @default("New Session")
+  model        String   @default("meta/llama-3.3-70b-instruct")
+  systemPrompt String? 
+  isActive     Boolean  @default(true)
+  tokenCount   Int      @default(0)
+  mode         String   @default("interactive")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  messages     Message[]
+
+  agentId String?
+  agent   AgentSession? @relation(fields: [agentId], references: [id])
+
+  @@map("sessions")
 }
 
-model Post {
+model Message {
+  id              String   @id @default(cuid())
+  sessionId       String
+  role            String
+  content         String   
+  toolCalls       String?  
+  toolResults     String?  
+  tokens          Int      @default(0)
+  createdAt       DateTime @default(now())
+  session         Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  thinkingContent String?  
+  modelId         String?
+  toolCost        Float?
+
+  @@map("messages")
+}
+
+// ============ 多Agent系统 ============
+model AgentSession {
   id        String   @id @default(cuid())
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  String
+  name      String
+  role      String   @default("worker")
+  status    String   @default("idle")
+  parentId  String?
+  task      String?  
+  sessions  Session[]
+  config    String?  
+  result    String?  
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@map("agent_sessions")
+}
+
+// ============ 工具系统 (44工具) ============
+model ToolDef {
+  id           String   @id @default(cuid())
+  name         String   @unique
+  displayName  String
+  description  String   
+  icon         String   @default("Wrench")
+  category     String   @default("general")
+  loadStrategy String   @default("core")
+  isEnabled    Boolean  @default(true)
+  isReadOnly   Boolean  @default(false)
+  riskLevel    String   @default("low")
+  config       String?  
+  config2      String?  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("tool_defs")
+}
+
+// ============ 技能系统 ============
+model SkillDef {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  displayName String
+  description String   
+  icon        String   @default("Sparkles")
+  category    String   @default("general")
+  isEnabled   Boolean  @default(true)
+  prompt      String?  
+  config      String?  
+  config2     String?  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("skill_defs")
+}
+
+// ============ 四层记忆系统 ============
+model Memory {
+  id          String    @id @default(cuid())
+  sessionId   String?
+  layer       String
+  category    String?
+  content     String    
+  filePath    String?
+  tags        String?
+  importance  Int       @default(5)
+  accessCount Int       @default(0)
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("memories")
+}
+
+// ============ 运行模式 ============
+model RunMode {
+  id           String   @id @default(cuid())
+  name         String   @unique
+  displayName  String
+  description  String   
+  icon         String   @default("Zap")
+  category     String   @default("interactive")
+  isEnabled    Boolean  @default(true)
+  config       String?  
+  featureFlags String?  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("run_modes")
+}
+
+// ============ 特性标志系统 ============
+model FeatureFlag {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String   
+  isEnabled   Boolean  @default(true)
+  category    String
+  config      String?  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("feature_flags")
+}
+
+// ============ Agent配置 ============
+model AgentConfig {
+  id               String   @id @default(cuid())
+  agentName        String   @default("CodeBot")
+  avatar           String   @default("🤖")
+  personality      String   @default("helpful")
+  maxTokens        Int      @default(8192)
+  temperature      Float    @default(0.7)
+  autoCompact      Boolean  @default(true)
+  compactThreshold Int      @default(13000)
+  toolConcurrency  Int      @default(5)
+  theme            String   @default("dark")
+  language         String   @default("zh-CN")
+  thinkingEnabled  Boolean  @default(false)
+  activeModel      String   @default("meta/llama-3.3-70b-instruct")
+  activeMode       String   @default("interactive")
+  nvidiaApiKey     String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("agent_configs")
+}
+
+// ============ 安全审计 ============
+model SecurityLog {
+  id        String   @id @default(cuid())
+  sessionId String?
+  toolName  String
+  action    String   
+  riskLevel String   @default("low")
+  reason    String?  
+  command   String?  
+  createdAt DateTime @default(now())
+
+  @@map("security_logs")
+}
+
+// ============ Token使用追踪 ============
+model TokenUsage {
+  id             String   @id @default(cuid())
+  sessionId      String?
+  modelId        String
+  inputTokens    Int      @default(0)
+  outputTokens   Int      @default(0)
+  cacheHitTokens Int      @default(0)
+  cost           Float    @default(0)
+  compressed     Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@map("token_usages")
+}
+
+// ============ 自定义模型接入 ============
+model CustomModel {
+  id               String   @id @default(cuid())
+  name             String
+  modelId          String   @unique
+  provider         String   @default("custom")
+  baseUrl          String
+  apiKey           String
+  apiFormat        String   @default("openai")
+  contextLength    Int      @default(8192)
+  supportsStreaming Boolean  @default(true)
+  supportsVision   Boolean  @default(false)
+  category         String   @default("chat")
+  isEnabled        Boolean  @default(true)
+  config           String?  
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("custom_models")
 }
