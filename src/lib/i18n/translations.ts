@@ -290,8 +290,19 @@ export interface Translations {
     reconnectFailed: string;
     welcome: string;
     welcomeDesc: string;
+    channelsTab: string;
+    messageLog: string;
+    noMessages: string;
+    noMessagesDesc: string;
+    msgs: string;
+    sendTestWebhook: string;
+    copyWebhookUrl: string;
+    channelSettings: string;
+    appSecret: string;
+    appSecretDesc: string;
+    fullWebhookUrl: string;
   };
-}
+};
 
 const zh: Translations = {
   nav: {
@@ -537,8 +548,8 @@ const zh: Translations = {
     disabled: '已禁用',
   },
   bridge: {
-    title: 'Bridge 远程终端',
-    subtitle: '通过 WebSocket REPL 远程控制 CodeBot',
+    title: 'Bridge 多渠道接入枢纽',
+    subtitle: '统一管理飞书、微信、QQ 等多渠道 Webhook 接入，远程控制 CodeBot',
     connectionStatus: '连接状态',
     connected: '已连接',
     disconnected: '未连接',
@@ -575,6 +586,17 @@ const zh: Translations = {
     reconnectFailed: '重连失败',
     welcome: 'Bridge REPL',
     welcomeDesc: '输入 help 查看可用命令',
+    channelsTab: '渠道管理',
+    messageLog: '消息日志',
+    noMessages: '暂无消息',
+    noMessagesDesc: '启用渠道后，收到的消息将在此处实时显示',
+    msgs: '条消息',
+    sendTestWebhook: '发送测试',
+    copyWebhookUrl: '复制 Webhook URL',
+    channelSettings: '渠道设置',
+    appSecret: 'App Secret / Token',
+    appSecretDesc: '用于签名验证，留空则跳过验证',
+    fullWebhookUrl: '完整 Webhook URL',
   },
 };
 
@@ -822,8 +844,8 @@ const en: Translations = {
     disabled: 'Disabled',
   },
   bridge: {
-    title: 'Bridge Remote Terminal',
-    subtitle: 'Control CodeBot remotely via WebSocket REPL',
+    title: 'Bridge Multi-Channel Hub',
+    subtitle: 'Unified webhook management for Feishu, WeChat, QQ and other mobile channels',
     connectionStatus: 'Connection Status',
     connected: 'Connected',
     disconnected: 'Disconnected',
@@ -860,6 +882,17 @@ const en: Translations = {
     reconnectFailed: 'Reconnection failed',
     welcome: 'Bridge REPL',
     welcomeDesc: 'Type help to see available commands',
+    channelsTab: 'Channels',
+    messageLog: 'Message Log',
+    noMessages: 'No messages yet',
+    noMessagesDesc: 'Enable channels to receive and display messages here in real time',
+    msgs: 'msgs',
+    sendTestWebhook: 'Send Test',
+    copyWebhookUrl: 'Copy Webhook URL',
+    channelSettings: 'Channel Settings',
+    appSecret: 'App Secret / Token',
+    appSecretDesc: 'Used for signature verification. Leave empty to skip.',
+    fullWebhookUrl: 'Full Webhook URL',
   },
 };
 

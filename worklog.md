@@ -2127,3 +2127,24 @@ Upgrade the bridge-service mini-service to support multi-channel webhook receivi
 **Files Modified:**
 - mini-services/bridge-service/index.ts — Complete rewrite (~470 lines), v1.0.0 to v2.0.0
 - mini-services/bridge-service/package.json — Version bump, removed ws dependency
+---
+Task ID: bridge-v2-multi-channel
+Agent: Main Orchestrator
+Task: Bridge Remote Terminal 功能优化升级 — 多渠道移动端接入枢纽
+
+Work Log:
+- 分析现有 BridgeView.tsx (577行 REPL终端) 和 bridge-service/index.ts (228行 WebSocket REPL)
+- 设计多渠道架构: 7个渠道适配器 (飞书/企业微信/QQ/钉钉/Slack/Telegram/自定义)
+- 升级 bridge-service: Bun.serve() 同时支持 HTTP + WebSocket, 新增 webhook 接收 + REST API
+- 重写 BridgeView.tsx: 三标签页 UI (渠道管理/消息日志/终端)
+- 创建 API 路由 /api/bridge/status 代理到 bridge-service
+- 更新 i18n (zh + en) 新增 13 个翻译键
+- 新增渠道特性: 签名验证、URL verification challenge、测试消息、实时广播
+- 新增 REPL 命令: channels (渠道列表), logs (消息日志)
+
+Stage Summary:
+- bridge-service/index.ts: 731行, HTTP+WS混合服务器, 7渠道适配器, 5个REST端点
+- BridgeView.tsx: 876行, 三标签页Hub仪表板, 渠道卡片+开关+设置弹窗+消息日志
+- route.ts: 71行, API代理层 (stats/channels/toggle/config/test/logs)
+- translations.ts: 新增13个 bridge 多渠道翻译键 (zh + en)
+- eslint.config.mjs: 添加 mini-services/** 忽略
