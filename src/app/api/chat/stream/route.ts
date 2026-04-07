@@ -257,10 +257,13 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Load conversation history
+    // Load conversation history (most recent 30 messages)
+    const totalCount = await db.message.count({ where: { sessionId } });
+    const skipCount = Math.max(0, totalCount - 30);
     const history = await db.message.findMany({
       where: { sessionId },
       orderBy: { createdAt: "asc" },
+      skip: skipCount,
       take: 30,
     });
 

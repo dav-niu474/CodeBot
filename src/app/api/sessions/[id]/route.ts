@@ -47,6 +47,54 @@ export async function GET(
   }
 }
 
+// DELETE /api/sessions/[id] - Delete a session and its messages
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+
+    if (!id) {
+      return NextResponse.json(
+        { error: 'Session id is required' },
+        { status: 400 }
+      );
+    }
+
+    // Verify session exists
+    const existing = await db.session.findUnique({
+      where: { id },
+    });
+
+    if (!existing) {
+      return NextResponse.json(
+        { error: 'Session not found' },
+        { status: 404 }
+      );
+    }
+
+    // Delete all messages first (foreign key constraint)
+    await db.message.deleteMany({
+      where: { sessionId: id },
+    });
+
+    // Delete the session
+    await db.session.delete({
+      where: { id },
+    });
+
+    return NextResponse.json({ success: true, deleted: id });
+  } catch (error: unknown) {
+    console.error('Session DELETE error:', error);
+    const message = error instanceof Error ? error.message : 'Internal server error';
+    return NextResponse.json(
+      { error: 'Failed to delete session', details: message },
+      { status: 500 }
+    );
+  }
+}
+
 // PUT /api/sessions/[id] - Update a session (partial update)
 export async function PUT(
   request: NextRequest,

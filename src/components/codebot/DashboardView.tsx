@@ -290,7 +290,7 @@ export function DashboardView() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-2xl font-bold text-foreground">
-                  CodeBot Agent v4.5
+                  CodeBot Agent v4.1.0
                 </h1>
                 <Badge
                   variant="outline"

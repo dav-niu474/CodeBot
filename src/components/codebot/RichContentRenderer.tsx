@@ -2,7 +2,7 @@
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import rehypeRaw from 'rehype-raw';
+// rehypeRaw removed for XSS protection — use rehype-sanitize instead
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Copy, Check } from 'lucide-react';
@@ -300,7 +300,7 @@ export function RichContentRenderer({ content, isStreaming }: RichContentRendere
     <div className="markdown-body">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeRaw]}
+        rehypePlugins={[]}
         components={components}
       >
         {processedContent[0] as string}

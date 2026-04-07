@@ -52,7 +52,7 @@ export async function runSwarmMode(
   let totalTokens = 0;
 
   // Create in-memory message bus for peer communication
-  const messageBus: AgentMessageBus = new MessageBusBus();
+  const messageBus: AgentMessageBus = new MessageBusClass();
 
   // ── Step 1: Create swarm agents in DB ──
   const swarmAgents: Array<{ id: string; name: string; sessionId: string; angle: string }> = [];

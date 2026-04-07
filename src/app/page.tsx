@@ -23,6 +23,7 @@ import { CommandPalette } from '@/components/codebot/CommandPalette';
 import { KeyboardShortcuts } from '@/components/codebot/KeyboardShortcuts';
 import { BuddyPanel } from '@/components/codebot/BuddyPanel';
 import { LayoutDashboard, MessageSquare, Cpu, Wrench, Shield } from 'lucide-react';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 function ViewContent({ view }: { view: ActiveView }) {
   switch (view) {
@@ -102,7 +103,9 @@ export default function Home() {
               transition={{ duration: 0.15 }}
               className="h-full"
             >
-              <ViewContent view={activeView} />
+              <ErrorBoundary>
+                <ViewContent view={activeView} />
+              </ErrorBoundary>
             </motion.div>
           </AnimatePresence>
         </div>

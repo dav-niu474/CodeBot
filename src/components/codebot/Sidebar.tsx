@@ -579,10 +579,6 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 // Exported Sidebar Components
 // ────────────────────────────────────────────
 
-export function Sidebar() {
-  return null;
-}
-
 export function DesktopSidebar() {
   return (
     <div className="hidden h-full w-64 shrink-0 border-r border-border/50 lg:flex">

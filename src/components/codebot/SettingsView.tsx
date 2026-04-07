@@ -84,15 +84,35 @@ export function SettingsView() {
   const { theme, setTheme: setThemeFromProvider } = useTheme();
   const [localConfig, setLocalConfig] = useState({ ...agentConfig });
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setAgentConfig(localConfig);
     // Sync theme with next-themes
     if (localConfig.theme && localConfig.theme !== theme) {
       setThemeFromProvider(localConfig.theme);
     }
-    toast.success('Settings saved', {
-      description: 'Agent configuration updated successfully.',
-    });
+    // Persist settings to database
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(localConfig),
+      });
+      if (!res.ok) {
+        console.error('Failed to persist settings:', await res.text());
+        toast.error('Settings saved locally', {
+          description: 'Could not save to database. Changes will be lost on refresh.',
+        });
+        return;
+      }
+      toast.success('Settings saved', {
+        description: 'Agent configuration updated successfully.',
+      });
+    } catch (err) {
+      console.error('Settings persist error:', err);
+      toast.error('Settings saved locally', {
+        description: 'Network error. Changes will be lost on refresh.',
+      });
+    }
   };
 
   const handleReset = () => {

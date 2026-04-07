@@ -88,10 +88,13 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Load conversation history (last 20 messages)
+    // Load conversation history (most recent 20 messages)
+    const totalCount = await db.message.count({ where: { sessionId } });
+    const skipCount = Math.max(0, totalCount - 20);
     const history = await db.message.findMany({
       where: { sessionId },
       orderBy: { createdAt: 'asc' },
+      skip: skipCount,
       take: 20,
     });
 

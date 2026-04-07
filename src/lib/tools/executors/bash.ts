@@ -91,7 +91,13 @@ export async function executeBash(
       cwd: workingDir,
       timeout,
       maxBuffer: 10 * 1024 * 1024, // 10MB buffer
-      env: { ...process.env },
+      // Only pass safe environment variables — never leak secrets
+      env: {
+        PATH: process.env.PATH,
+        HOME: process.env.HOME,
+        LANG: process.env.LANG || 'en_US.UTF-8',
+        NODE_ENV: process.env.NODE_ENV,
+      },
       shell: '/bin/bash',
     });
 
