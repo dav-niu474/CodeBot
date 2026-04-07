@@ -87,17 +87,20 @@ export async function executeBash(
     // Send progress event if callback provided
     context.onProgress?.('bash_start', { command, workingDirectory: workingDir, timeout });
 
+    // Build safe environment — only pass whitelisted variables, never leak secrets
+    const ALLOWED_ENV_VARS = ['PATH', 'HOME', 'LANG', 'NODE_ENV', 'TMPDIR', 'TEMP', 'TMP'] as const;
+    const safeEnv: Record<string, string | undefined> = {};
+    for (const key of ALLOWED_ENV_VARS) {
+      const val = process.env[key];
+      if (val !== undefined) safeEnv[key] = val;
+    }
+    if (!safeEnv.LANG) safeEnv.LANG = 'en_US.UTF-8';
+
     const result = await execAsync(command, {
       cwd: workingDir,
       timeout,
       maxBuffer: 10 * 1024 * 1024, // 10MB buffer
-      // Only pass safe environment variables — never leak secrets
-      env: {
-        PATH: process.env.PATH,
-        HOME: process.env.HOME,
-        LANG: process.env.LANG || 'en_US.UTF-8',
-        NODE_ENV: process.env.NODE_ENV,
-      },
+      env: safeEnv,
       shell: '/bin/bash',
     });
 

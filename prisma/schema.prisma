@@ -117,6 +117,9 @@ model Memory {
   @@index([layer, sessionId])
   @@index([layer, importance, accessCount])
   @@index([sessionId, createdAt])
+  @@index([sessionId])
+  @@index([category])
+  @@index([sessionId, category])
 
   @@map("memories")
 }

@@ -463,15 +463,6 @@
   border-radius: 3px;
 }
 
-/* Light mode markdown link colors */
-.markdown-body a {
-  color: oklch(0.596 0.145 163.225);
-}
-
-.markdown-body a:hover {
-  color: oklch(0.508 0.118 165.612);
-}
-
 /* ─── Mobile & UI Polish ─── */
 
 /* Smooth scrolling for the entire app */
