@@ -36,6 +36,7 @@ import {
 import { motion } from 'framer-motion';
 import { useState } from 'react';
 import { toast } from 'sonner';
+import { useTheme } from 'next-themes';
 
 const container = {
   hidden: { opacity: 0 },
@@ -80,10 +81,15 @@ const quickActions = [
 
 export function SettingsView() {
   const { agentConfig, setAgentConfig, setActiveView } = useChatStore();
+  const { theme, setTheme: setThemeFromProvider } = useTheme();
   const [localConfig, setLocalConfig] = useState({ ...agentConfig });
 
   const handleSave = () => {
     setAgentConfig(localConfig);
+    // Sync theme with next-themes
+    if (localConfig.theme && localConfig.theme !== theme) {
+      setThemeFromProvider(localConfig.theme);
+    }
     toast.success('Settings saved', {
       description: 'Agent configuration updated successfully.',
     });

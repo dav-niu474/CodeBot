@@ -13,6 +13,7 @@ import type {
   AgentSession,
  MagicDocEntry,
  BuddyConfig,
+  BuddySpecies,
 } from "@/lib/types";
 import {
   DEFAULT_TOOLS,

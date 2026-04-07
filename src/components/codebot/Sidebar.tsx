@@ -52,6 +52,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { formatDistanceToNow } from 'date-fns';
 import { useTheme } from 'next-themes';
 import { useLocale } from '@/lib/i18n/use-locale';
+import { toast } from 'sonner';
 
 // ────────────────────────────────────────────
 // Mode color config
@@ -312,6 +313,16 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     onNavigate?.();
   };
 
+  const handleDeleteSession = async (id: string) => {
+    try {
+      await fetch(`/api/sessions/${id}`, { method: 'DELETE' });
+    } catch {
+      // API call failed — still remove from local state
+    }
+    deleteSession(id);
+    toast.success(locale === 'zh' ? '会话已删除' : 'Session deleted');
+  };
+
   const handleNavClick = (view: ActiveView) => {
     setActiveView(view);
     onNavigate?.();
@@ -338,7 +349,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           </span>
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] font-medium text-muted-foreground">
-              v4.5.0
+              v4.1.0
             </span>
             <Badge
               variant="secondary"
@@ -498,7 +509,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            deleteSession(session.id);
+                            handleDeleteSession(session.id);
                           }}
                           className="shrink-0 rounded p-0.5 text-muted-foreground/0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:text-muted-foreground/40"
                         >
