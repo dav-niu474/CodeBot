@@ -70,6 +70,24 @@ const QUICK_MODES: Array<{
     bgClass: 'bg-cyan-500/10',
     borderClass: 'border-cyan-500/20',
   },
+  {
+    mode: 'plan',
+    label: 'Plan',
+    emoji: '📋',
+    description: 'Plan mode — create plans before executing',
+    colorClass: 'text-indigo-400',
+    bgClass: 'bg-indigo-500/10',
+    borderClass: 'border-indigo-500/20',
+  },
+  {
+    mode: 'ultraplan',
+    label: 'UltraPlan',
+    emoji: '🧠',
+    description: 'Deep multi-step planning with exploration',
+    colorClass: 'text-violet-400',
+    bgClass: 'bg-violet-500/10',
+    borderClass: 'border-violet-500/20',
+  },
 ];
 
 // Map skill icon names to Lucide components

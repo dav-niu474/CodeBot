@@ -277,12 +277,42 @@ export function AgentProgressPanel({ multiAgent, userTask, onDismiss }: AgentPro
     return () => clearInterval(interval);
   }, [isActive, multiAgent.phase]);
 
+  // Per-agent elapsed time tracking
+  const agentStartRef = useRef<Map<string, number>>(new Map());
+  useEffect(() => {
+    if (multiAgent.phase === 'idle') {
+      agentStartRef.current.clear();
+      return;
+    }
+    for (const agent of multiAgent.agents) {
+      if (!agentStartRef.current.has(agent.id)) {
+        agentStartRef.current.set(agent.id, Date.now());
+      }
+    }
+  }, [multiAgent.agents, multiAgent.phase]);
+
   // Reset elapsed when phase changes to idle
   useEffect(() => {
     if (multiAgent.phase === 'idle') {
       setElapsed(0);
     }
   }, [multiAgent.phase]);
+
+  // Compute per-agent elapsed time
+  const getAgentElapsed = useCallback((agentId: string): number => {
+    const start = agentStartRef.current.get(agentId);
+    if (!start) return 0;
+    const agent = multiAgent.agents.find(a => a.id === agentId);
+    if (agent?.status === 'done' || agent?.status === 'failed') {
+      // Once done, freeze the time
+      const frozenRef = agentStartRef.current.get(`${agentId}:frozen`);
+      if (frozenRef) return frozenRef - start;
+      const frozen = Date.now();
+      agentStartRef.current.set(`${agentId}:frozen`, frozen);
+      return frozen - start;
+    }
+    return Date.now() - start;
+  }, [multiAgent.agents]);
 
   const cfg = multiAgent.mode ? modeConfig[multiAgent.mode] : null;
   const ModeIcon = cfg?.icon ?? Users;
@@ -345,6 +375,22 @@ export function AgentProgressPanel({ multiAgent, userTask, onDismiss }: AgentPro
             }}
             style={{ backgroundSize: '200% 100%' }}
           />
+          {/* Shimmer pulse overlay when active */}
+          {isActive && (
+            <motion.div
+              className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent"
+              animate={{
+                opacity: [0, 0.6, 0],
+                x: ['-100%', '200%'],
+              }}
+              transition={{
+                duration: 2,
+                repeat: Infinity,
+                ease: 'easeInOut',
+              }}
+              style={{ width: '60%' }}
+            />
+          )}
         </div>
 
         {/* ─── Glassmorphism Card Body ─── */}
@@ -537,7 +583,7 @@ export function AgentProgressPanel({ multiAgent, userTask, onDismiss }: AgentPro
                                 )}>
                                   <StepIcon className={cn(
                                     'h-2.5 w-2.5',
-                                    isStepActive ? cfg.color : 'text-zinc-500',
+                                    isStepActive ? cfg.color : 'text-muted-foreground/50',
                                   )} />
                                 </div>
                                 <span className={cn(
@@ -577,6 +623,32 @@ export function AgentProgressPanel({ multiAgent, userTask, onDismiss }: AgentPro
                           transition={{ duration: 0.5, ease: 'easeOut' }}
                         />
                       </div>
+                    </motion.div>
+                  )}
+
+                  {/* ─── Empty State: Loading Skeleton ─── */}
+                  {totalTaskCount === 0 && (multiAgent.phase === 'spawning' || multiAgent.phase === 'executing') && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3, delay: 0.1 }}
+                      className="space-y-3 py-2"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <Layers className={cn('h-3 w-3 animate-pulse', cfg.colorDim)} />
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          Preparing agents...
+                        </span>
+                      </div>
+                      {[0, 1, 2].map((i) => (
+                        <div key={i} className="flex items-start gap-3">
+                          <div className="mt-0.5 h-7 w-7 shrink-0 animate-pulse rounded-full bg-muted/60" />
+                          <div className="min-w-0 flex-1 space-y-1.5">
+                            <div className={cn('h-3 w-', `${40 + i * 15}%`, ' animate-pulse rounded bg-muted/50')} />
+                            <div className="h-2 w-20 animate-pulse rounded bg-muted/30" />
+                          </div>
+                        </div>
+                      ))}
                     </motion.div>
                   )}
 
@@ -713,15 +785,18 @@ export function AgentProgressPanel({ multiAgent, userTask, onDismiss }: AgentPro
                                         </span>
                                       </>
                                     )}
-                                    {(isActive || elapsed > 0) && (
-                                      <>
-                                        <span className="text-[9px] text-muted-foreground/30">·</span>
-                                        <span className="text-[10px] text-muted-foreground/50">
-                                          <Clock className="mr-0.5 inline h-2 w-2" />
-                                          {formatElapsed(elapsed)}
-                                        </span>
-                                      </>
-                                    )}
+                                    {(() => {
+                                      const agentElapsed = getAgentElapsed(agent.id);
+                                      return agentElapsed > 0 ? (
+                                        <>
+                                          <span className="text-[9px] text-muted-foreground/30">·</span>
+                                          <span className="text-[10px] text-muted-foreground/50">
+                                            <Clock className="mr-0.5 inline h-2 w-2" />
+                                            {formatElapsed(agentElapsed)}
+                                          </span>
+                                        </>
+                                      ) : null;
+                                    })()}
                                   </div>
 
                                   {/* Expanded: agent detail card */}
@@ -776,7 +851,7 @@ export function AgentProgressPanel({ multiAgent, userTask, onDismiss }: AgentPro
                           Summary
                         </span>
                       </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-2">
                         <div className="rounded-md border border-border/20 bg-card/40 px-2.5 py-1.5">
                           <div className="text-[9px] text-muted-foreground/50 mb-0.5">Time</div>
                           <div className="text-[11px] font-semibold tabular-nums text-foreground">

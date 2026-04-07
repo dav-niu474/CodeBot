@@ -233,6 +233,7 @@ export function ChatView() {
     addSession,
     setActiveSession,
     deleteSession,
+    deleteMessagesAfter,
     updateSession,
     setSessions,
     setMessagesForSession,
@@ -689,6 +690,73 @@ export function ChatView() {
     },
     [addMessage, updateMessage, setLoading, setStreamingMessageId, selectedModel, agentConfig]
   );
+
+  // ── Listen for retry event from MessageBubble ──
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { userMessageId: string };
+      if (!detail.userMessageId) return;
+      if (isLoading) return;
+      if (!activeSessionId) return;
+
+      // Find the user message content
+      const currentMsgs = useChatStore.getState().messages;
+      const userMsg = currentMsgs.find((m) => m.id === detail.userMessageId);
+      if (!userMsg) return;
+
+      // Strip any image data for re-sending
+      const textContent = userMsg.content.replace(/\[IMAGE\].*/, '').trim();
+      if (!textContent) return;
+
+      // Delete all messages after (and including) the assistant response
+      // We keep the user message itself — deleteMessagesAfter keeps up to and including the target
+      // So we need to find the first message AFTER the user message and delete from there
+      const userIdx = currentMsgs.findIndex((m) => m.id === detail.userMessageId);
+      if (userIdx === -1 || userIdx === currentMsgs.length - 1) {
+        // No messages after the user message, just re-send
+      } else {
+        // Delete from the first message after the user message onward
+        const firstAfterId = currentMsgs[userIdx + 1].id;
+        deleteMessagesAfter(firstAfterId);
+      }
+
+      // Re-send the user message to the API
+      sendToAPI(textContent, activeSessionId);
+    };
+    window.addEventListener('chat-retry', handler);
+    return () => window.removeEventListener('chat-retry', handler);
+  }, [isLoading, activeSessionId, deleteMessagesAfter, sendToAPI]);
+
+  // ── Listen for edit-save event from MessageBubble ──
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { messageId: string };
+      if (!detail.messageId) return;
+      if (isLoading) return;
+      if (!activeSessionId) return;
+
+      // The message content was already updated in the store by MessageBubble
+      // Now delete all messages after this user message and re-send
+      const currentMsgs = useChatStore.getState().messages;
+      const userIdx = currentMsgs.findIndex((m) => m.id === detail.messageId);
+      if (userIdx === -1) return;
+
+      const userMsg = currentMsgs[userIdx];
+      const textContent = userMsg.content.replace(/\[IMAGE\].*/, '').trim();
+      if (!textContent) return;
+
+      if (userIdx < currentMsgs.length - 1) {
+        // Delete from the first message after the user message onward
+        const firstAfterId = currentMsgs[userIdx + 1].id;
+        deleteMessagesAfter(firstAfterId);
+      }
+
+      // Re-send the edited message
+      sendToAPI(textContent, activeSessionId);
+    };
+    window.addEventListener('chat-edit-save', handler);
+    return () => window.removeEventListener('chat-edit-save', handler);
+  }, [isLoading, activeSessionId, deleteMessagesAfter, sendToAPI]);
 
   const sendImageToAPI = useCallback(
     async (userMessage: string, imageFile: File) => {
@@ -1929,11 +1997,6 @@ export function ChatView() {
           })()}
         </AnimatePresence>
 
-        {/* ─── UltraPlan Panel ─── */}
-        <AnimatePresence>
-          {activeMode === 'ultraplan' && <PlanPanel />}
-        </AnimatePresence>
-
         {/* Messages Area */}
         <div className="flex-1 overflow-hidden">
           <div
@@ -2026,6 +2089,11 @@ export function ChatView() {
               </div>
             </motion.div>
           )}
+        </AnimatePresence>
+
+        {/* ─── Plan Panel (plan + ultraplan modes) ─── */}
+        <AnimatePresence>
+          {(activeMode === 'plan' || activeMode === 'ultraplan') && <PlanPanel />}
         </AnimatePresence>
 
         {/* ─── Chat Toolbar (mode/skills/tools/memory quick access) ─── */}

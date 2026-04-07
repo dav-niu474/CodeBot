@@ -91,6 +91,8 @@ interface ChatStore {
   setMessages: (messages: Message[]) => void;
   addMessage: (message: Message) => void;
   updateMessage: (id: string, updates: Partial<Message>) => void;
+  deleteMessagesAfter: (messageId: string) => void;
+  truncateMessagesAfter: (messageId: string) => void;
   clearMessages: () => void;
   setMessagesForSession: (sessionId: string, messages: Message[]) => void;
 
@@ -301,6 +303,34 @@ export const useChatStore = create<ChatStore>((set) => ({
         messages: newMessages,
         messagesMap: state.activeSessionId
           ? { ...state.messagesMap, [state.activeSessionId]: newMessages }
+          : state.messagesMap,
+      };
+    }),
+
+  deleteMessagesAfter: (messageId) =>
+    set((state) => {
+      const idx = state.messages.findIndex((m) => m.id === messageId);
+      if (idx === -1) return state;
+      // Keep messages up to and including the target message
+      const truncated = state.messages.slice(0, idx + 1);
+      return {
+        messages: truncated,
+        messagesMap: state.activeSessionId
+          ? { ...state.messagesMap, [state.activeSessionId]: truncated }
+          : state.messagesMap,
+      };
+    }),
+
+  truncateMessagesAfter: (messageId) =>
+    set((state) => {
+      const idx = state.messages.findIndex((m) => m.id === messageId);
+      if (idx === -1) return state;
+      // Keep messages up to and including the target message
+      const truncated = state.messages.slice(0, idx + 1);
+      return {
+        messages: truncated,
+        messagesMap: state.activeSessionId
+          ? { ...state.messagesMap, [state.activeSessionId]: truncated }
           : state.messagesMap,
       };
     }),

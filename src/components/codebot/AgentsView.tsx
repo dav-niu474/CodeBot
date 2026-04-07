@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useChatStore } from '@/store/chat-store';
 import type {
   AgentRole,
@@ -11,6 +11,7 @@ import type {
 } from '@/lib/types';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -52,6 +53,7 @@ import {
   Mail,
   CircleDot,
   Sparkles,
+  RefreshCw,
   type LucideIcon,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -352,9 +354,118 @@ const AGENT_ROLES: { value: AgentRole; label: string }[] = [
   { value: 'scout', label: 'Scout' },
 ];
 
+// ── API → Frontend mapping helpers ─────────────
+/** Map API status to frontend AgentStatus */
+function mapApiStatus(apiStatus: string): AgentStatus {
+  switch (apiStatus) {
+    case 'running':
+      return 'working';
+    case 'idle':
+    case 'completed':
+    case 'failed':
+      return apiStatus as AgentStatus;
+    default:
+      return 'idle';
+  }
+}
+
+/** Map a raw API agent object to the frontend AgentSession shape */
+function mapApiAgent(raw: Record<string, unknown>): AgentSession {
+  const cfg = (raw.config as Record<string, unknown>) || {};
+  const sessions = (raw.sessions as Array<{ id: string; tokenCount?: number; isActive?: boolean }>) || [];
+  const tokensUsed = sessions.reduce((sum: number, s) => sum + (s.tokenCount || 0), 0);
+  return {
+    id: raw.id as string,
+    parentId: (raw.parentId as string) || null,
+    name: raw.name as string,
+    role: (raw.role as AgentRole) || 'worker',
+    status: mapApiStatus(raw.status as string),
+    task: (raw.task as string) || '',
+    childIds: [], // childIds derived below after all agents loaded
+    allowedTools: ((cfg.allowedTools as string[]) || ['bash', 'file-read', 'file-write', 'grep', 'glob']),
+    mode: ((cfg.mode as RunningMode) || 'interactive'),
+    tokenBudget: ((cfg.tokenBudget as number) || 8192),
+    tokensUsed,
+    startedAt: (raw.createdAt as string) || new Date().toISOString(),
+    completedAt: raw.status === 'completed' ? (raw.updatedAt as string) || null : null,
+    errorMessage: raw.status === 'failed' ? 'Agent failed' : null,
+  };
+}
+
+/** Derive childIds from parentId relationships */
+function deriveChildIds(agents: AgentSession[]): AgentSession[] {
+  const parentMap = new Map<string, string[]>();
+  for (const a of agents) {
+    if (a.parentId) {
+      const children = parentMap.get(a.parentId) || [];
+      children.push(a.id);
+      parentMap.set(a.parentId, children);
+    }
+  }
+  return agents.map((a) => ({
+    ...a,
+    childIds: parentMap.get(a.id) || [],
+  }));
+}
+
+/** Map DB chat messages to frontend AgentMessage shape */
+function mapApiMessages(agentId: string, msgs: Array<{ id: string; role: string; content: string; createdAt: string }>): AgentMessage[] {
+  return msgs.map((m) => ({
+    id: m.id,
+    fromAgentId: m.role === 'user' ? '__user__' : agentId,
+    toAgentId: m.role === 'user' ? agentId : null,
+    content: m.content,
+    type: m.role === 'user' ? 'task' as const : 'result' as const,
+    sentAt: m.createdAt,
+  }));
+}
+
+// ── Loading Skeleton ─────────────────────────────
+function AgentCardSkeleton() {
+  return (
+    <Card className="border-border/50 bg-card/50">
+      <CardContent className="p-3">
+        <div className="flex items-start gap-3">
+          <Skeleton className="h-9 w-9 rounded-lg" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-4 w-28" />
+              <Skeleton className="h-4 w-12 rounded-full" />
+              <Skeleton className="h-3 w-14" />
+            </div>
+            <Skeleton className="h-3 w-full max-w-xs" />
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-3 w-16" />
+            </div>
+          </div>
+          <Skeleton className="h-2 w-16 rounded-full" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MessageSkeleton() {
+  return (
+    <div className="flex items-start gap-2.5 rounded-lg px-2.5 py-2">
+      <Skeleton className="h-6 w-6 rounded-md" />
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-3 w-20" />
+          <Skeleton className="h-3 w-3" />
+          <Skeleton className="h-3 w-16" />
+          <Skeleton className="h-3 w-10 rounded-full ml-auto" />
+        </div>
+        <Skeleton className="h-3 w-full max-w-sm" />
+      </div>
+    </div>
+  );
+}
+
 // ── Component ───────────────────────────────────
 export function AgentsView() {
-  const { agentSessions, setActiveView, setActiveMode } = useChatStore();
+  const { agentSessions, setActiveView, setActiveMode, setAgentSessions } = useChatStore();
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newAgent, setNewAgent] = useState({
@@ -364,9 +475,124 @@ export function AgentsView() {
     task: '',
     tokenBudget: 25000,
   });
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [apiMessages, setApiMessages] = useState<AgentMessage[]>([]);
+  const [isCreating, setIsCreating] = useState(false);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // ── Data fetching ─────────────────────────────
+  const fetchAgents = useCallback(async (showToast = false) => {
+    try {
+      const res = await fetch('/api/agents');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.agents)) {
+        const mapped = data.agents.map(mapApiAgent);
+        const withChildren = deriveChildIds(mapped);
+        setAgentSessions(withChildren);
+        return withChildren;
+      }
+      return null;
+    } catch (err) {
+      console.error('[AgentsView] Failed to fetch agents:', err);
+      if (showToast) {
+        toast.error('Failed to load agents', {
+          description: err instanceof Error ? err.message : 'Unknown error',
+        });
+      }
+      return null;
+    }
+  }, [setAgentSessions]);
+
+  const fetchMessages = useCallback(async (agents: AgentSession[]) => {
+    if (agents.length === 0) return;
+    try {
+      const allMessages: AgentMessage[] = [];
+      // Fetch messages for each agent (up to 10 agents to avoid too many requests)
+      const toFetch = agents.slice(0, 10);
+      const results = await Promise.allSettled(
+        toFetch.map(async (agent) => {
+          const res = await fetch(`/api/agents/${agent.id}`);
+          if (!res.ok) return [];
+          const data = await res.json();
+          if (!data.success || !data.agent) return [];
+          const agentSessions = data.agent.sessions || [];
+          const msgs: AgentMessage[] = [];
+          for (const s of agentSessions) {
+            const sMsgs = (s.messages || []) as Array<{ id: string; role: string; content: string; createdAt: string }>;
+            msgs.push(...mapApiMessages(agent.id, sMsgs));
+          }
+          return msgs;
+        })
+      );
+      for (const r of results) {
+        if (r.status === 'fulfilled') allMessages.push(...r.value);
+      }
+      // Sort by sentAt descending
+      allMessages.sort((a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime());
+      setApiMessages(allMessages);
+    } catch (err) {
+      console.error('[AgentsView] Failed to fetch messages:', err);
+    }
+  }, []);
+
+  const refreshData = useCallback(async () => {
+    setIsRefreshing(true);
+    const agents = await fetchAgents(true);
+    if (agents && agents.length > 0) {
+      await fetchMessages(agents);
+    }
+    setIsRefreshing(false);
+  }, [fetchAgents, fetchMessages]);
+
+  // ── Initial load ──────────────────────────────
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      setIsLoading(true);
+      const agents = await fetchAgents();
+      if (mounted && agents && agents.length > 0) {
+        await fetchMessages(agents);
+      }
+      if (mounted) setIsLoading(false);
+    })();
+    return () => { mounted = false; };
+  }, [fetchAgents, fetchMessages]);
+
+  // ── Polling for active agents ─────────────────
+  useEffect(() => {
+    // Clear any existing interval
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+
+    const currentSessions = agentSessions.length > 0 ? agentSessions : [];
+    const hasActive = currentSessions.some(
+      (s) => s.status === 'working' || s.status === 'initializing'
+    );
+
+    if (hasActive) {
+      pollingRef.current = setInterval(async () => {
+        const agents = await fetchAgents();
+        if (agents && agents.length > 0) {
+          await fetchMessages(agents);
+        }
+      }, 5000);
+    }
+
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, [agentSessions, fetchAgents, fetchMessages]);
+
+  // ── Derived data (API first, mock fallback) ───
   const sessions = agentSessions.length > 0 ? agentSessions : MOCK_AGENT_SESSIONS;
-  const messages = MOCK_MESSAGES;
+  const messages = apiMessages.length > 0 ? apiMessages : MOCK_MESSAGES;
 
   const totalTokens = sessions.reduce((a, s) => a + s.tokensUsed, 0);
   const totalBudget = sessions.reduce((a, s) => a + s.tokenBudget, 0);
@@ -374,33 +600,51 @@ export function AgentsView() {
     (s) => s.status === 'working' || s.status === 'initializing'
   ).length;
 
-  const handleCreateAgent = () => {
+  const handleCreateAgent = async () => {
     if (!newAgent.name.trim() || !newAgent.task.trim()) return;
-    const newSession: AgentSession = {
-      id: `agent-${Date.now()}`,
-      parentId: null,
-      name: newAgent.name,
-      role: newAgent.role,
-      status: 'idle',
-      task: newAgent.task,
-      childIds: [],
-      allowedTools: ['bash', 'file-read', 'file-write', 'grep', 'glob'],
-      mode: newAgent.mode,
-      tokenBudget: newAgent.tokenBudget,
-      tokensUsed: 0,
-      startedAt: new Date().toISOString(),
-      completedAt: null,
-      errorMessage: null,
-    };
-    useChatStore.getState().setAgentSessions([...sessions, newSession]);
-    setCreateDialogOpen(false);
-    setNewAgent({
-      name: '',
-      role: 'worker',
-      mode: 'interactive',
-      task: '',
-      tokenBudget: 25000,
-    });
+    setIsCreating(true);
+    try {
+      const res = await fetch('/api/agents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newAgent.name,
+          role: newAgent.role,
+          task: newAgent.task,
+          tokenBudget: newAgent.tokenBudget,
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: 'Request failed' }));
+        throw new Error(errData.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      if (data.success && data.agent) {
+        toast.success('Agent created', {
+          description: `${data.agent.name} is ready to work`,
+        });
+        // Refresh data to pick up the new agent
+        const agents = await fetchAgents();
+        if (agents && agents.length > 0) {
+          await fetchMessages(agents);
+        }
+      }
+      setCreateDialogOpen(false);
+      setNewAgent({
+        name: '',
+        role: 'worker',
+        mode: 'interactive',
+        task: '',
+        tokenBudget: 25000,
+      });
+    } catch (err) {
+      console.error('[AgentsView] Failed to create agent:', err);
+      toast.error('Failed to create agent', {
+        description: err instanceof Error ? err.message : 'Unknown error',
+      });
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   const getAgentName = (id: string) => {
@@ -442,6 +686,15 @@ export function AgentsView() {
               <Badge variant="outline" className="text-muted-foreground">
                 {sessions.length} agents
               </Badge>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                onClick={refreshData}
+                disabled={isRefreshing || isLoading}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+              </Button>
             </div>
           </div>
         </motion.div>
@@ -605,6 +858,7 @@ export function AgentsView() {
                 <Button
                   size="sm"
                   className="bg-emerald-600 text-white hover:bg-emerald-500"
+                  disabled={isLoading}
                 >
                   <Plus className="mr-1.5 h-3.5 w-3.5" />
                   Create Agent
@@ -725,10 +979,14 @@ export function AgentsView() {
                     size="sm"
                     className="bg-emerald-600 text-white hover:bg-emerald-500"
                     onClick={handleCreateAgent}
-                    disabled={!newAgent.name.trim() || !newAgent.task.trim()}
+                    disabled={!newAgent.name.trim() || !newAgent.task.trim() || isCreating}
                   >
-                    <Plus className="mr-1.5 h-3.5 w-3.5" />
-                    Create Agent
+                    {isCreating ? (
+                      <RefreshCw className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Plus className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    {isCreating ? 'Creating…' : 'Create Agent'}
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -760,7 +1018,12 @@ export function AgentsView() {
           {/* Agent Cards */}
           <div className="max-h-96 overflow-y-auto pr-1">
             <div className="space-y-2">
-              {sessions.map((session) => {
+              {isLoading ? (
+                Array.from({ length: 3 }).map((_, i) => (
+                  <AgentCardSkeleton key={`skeleton-${i}`} />
+                ))
+              ) : (
+              sessions.map((session) => {
                 const sc = statusColorMap[session.status];
                 const rs = roleStyles[session.role];
                 const usagePct =
@@ -865,7 +1128,8 @@ export function AgentsView() {
                     </Card>
                   </motion.div>
                 );
-              })}
+              })
+              )}
             </div>
           </div>
         </motion.div>
@@ -885,7 +1149,12 @@ export function AgentsView() {
           <Card className="border-border/50 bg-card/50">
             <div className="max-h-80 overflow-y-auto">
               <div className="space-y-1 p-3">
-                {messages.map((msg, i) => {
+                {isLoading ? (
+                  Array.from({ length: 4 }).map((_, i) => (
+                    <MessageSkeleton key={`msg-skeleton-${i}`} />
+                  ))
+                ) : (
+                messages.map((msg, i) => {
                   const from = getAgentName(msg.fromAgentId);
                   const to = msg.toAgentId ? getAgentName(msg.toAgentId) : 'broadcast';
                   const mts = messageTypeStyles[msg.type];
@@ -928,7 +1197,8 @@ export function AgentsView() {
                       </div>
                     </motion.div>
                   );
-                })}
+                })
+                )}
               </div>
             </div>
           </Card>

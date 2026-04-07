@@ -7,8 +7,8 @@ import { Badge } from '@/components/ui/badge';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RichContentRenderer } from './RichContentRenderer';
 import { ToolCallBlock } from './ToolCallBlock';
-import { Copy, Check, User, Brain, ChevronDown, Wrench, BrainCircuit, Code2, Search } from 'lucide-react';
-import { useState, useCallback, useMemo } from 'react';
+import { Copy, Check, User, Brain, ChevronDown, Wrench, BrainCircuit, Code2, Search, RefreshCw, Pencil } from 'lucide-react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useLocale } from '@/lib/i18n/use-locale';
 
 function CopyButton({ text }: { text: string }) {
@@ -114,6 +114,22 @@ export function MessageBubble({
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
   const isTool = message.role === 'tool';
+  const isAssistant = message.role === 'assistant';
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [editContent, setEditContent] = useState('');
+  const [isRetrying, setIsRetrying] = useState(false);
+  const editTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-focus edit textarea
+  useEffect(() => {
+    if (isEditing && editTextareaRef.current) {
+      editTextareaRef.current.focus();
+      // Move cursor to end
+      const len = editTextareaRef.current.value.length;
+      editTextareaRef.current.setSelectionRange(len, len);
+    }
+  }, [isEditing]);
 
   // Check for thinking indicator
   const isThinking = message.toolCalls === 'thinking';
@@ -121,6 +137,74 @@ export function MessageBubble({
   // Check for image content
   const imageMatch = message.content.match(/\[IMAGE\](data:image[^;\s]+;base64,[A-Za-z0-9+/=]+)/);
   const textContent = message.content.replace(/\[IMAGE\].*/, '').trim();
+
+  // ── Retry handler (for assistant messages) ────
+  const handleRetry = useCallback(() => {
+    if (isRetrying || isStreaming) return;
+    setIsRetrying(true);
+    // Find the preceding user message in the current messages array
+    const currentMsgs = useChatStore.getState().messages;
+    const idx = currentMsgs.findIndex((m) => m.id === message.id);
+    let userMsgId: string | null = null;
+    for (let i = idx - 1; i >= 0; i--) {
+      if (currentMsgs[i].role === 'user') {
+        userMsgId = currentMsgs[i].id;
+        break;
+      }
+    }
+    if (!userMsgId) {
+      setIsRetrying(false);
+      return;
+    }
+    // Dispatch event for ChatView to handle
+    window.dispatchEvent(
+      new CustomEvent('chat-retry', { detail: { userMessageId: userMsgId } })
+    );
+    // Reset after a delay to prevent double-clicks
+    setTimeout(() => setIsRetrying(false), 1000);
+  }, [isRetrying, isStreaming, message.id]);
+
+  // ── Edit handlers (for user messages) ────────
+  const handleStartEdit = useCallback(() => {
+ if (isStreaming) return;
+    setEditContent(textContent);
+    setIsEditing(true);
+  }, [isStreaming, textContent]);
+
+  const handleCancelEdit = useCallback(() => {
+    setIsEditing(false);
+    setEditContent('');
+  }, []);
+
+  const handleSaveEdit = useCallback(() => {
+    const trimmed = editContent.trim();
+    if (!trimmed) {
+      setIsEditing(false);
+      return;
+    }
+    // Update the message content in the store
+    useChatStore.getState().updateMessage(message.id, {
+      content: imageMatch ? `${trimmed}\n[IMAGE]${imageMatch[1]}` : trimmed,
+    });
+    setIsEditing(false);
+    // Dispatch event for ChatView to delete subsequent messages and re-send
+    window.dispatchEvent(
+      new CustomEvent('chat-edit-save', { detail: { messageId: message.id } })
+    );
+  }, [editContent, message.id, imageMatch]);
+
+  const handleEditKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        handleSaveEdit();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        handleCancelEdit();
+      }
+    },
+    [handleSaveEdit, handleCancelEdit]
+  );
 
   // Parse tool calls from message.toolCallsDisplay (new SSE format) or message.toolCalls (legacy)
   const parsedToolCalls: ToolCallDisplay[] = useMemo(() => {
@@ -198,7 +282,7 @@ export function MessageBubble({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
-      className={cn('flex gap-3 px-4 py-3', isUser ? 'flex-row-reverse' : 'flex-row')}
+      className={cn('group flex gap-3 px-4 py-3', isUser ? 'flex-row-reverse' : 'flex-row')}
     >
       {/* Avatar */}
       <div
@@ -249,12 +333,31 @@ export function MessageBubble({
           )}
         >
           {isUser ? (
-            <div>
-              <p className="whitespace-pre-wrap leading-relaxed">{textContent}</p>
-              {imageMatch && (
-                <ImageContent src={imageMatch[1]} alt="User attached image" />
-              )}
-            </div>
+            isEditing ? (
+              <div className="min-w-[200px]">
+                <textarea
+                  ref={editTextareaRef}
+                  value={editContent}
+                  onChange={(e) => setEditContent(e.target.value)}
+                  onKeyDown={handleEditKeyDown}
+                  rows={3}
+                  className="w-full resize-none rounded-lg border border-emerald-500/30 bg-emerald-700/20 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-1 focus:ring-emerald-400/50"
+                  placeholder="Edit your message..."
+                />
+                <div className="mt-1.5 flex items-center gap-2 text-[10px] text-white/40">
+                  <span>Ctrl+Enter to save</span>
+                  <span>·</span>
+                  <span>Esc to cancel</span>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <p className="whitespace-pre-wrap leading-relaxed">{textContent}</p>
+                {imageMatch && (
+                  <ImageContent src={imageMatch[1]} alt="User attached image" />
+                )}
+              </div>
+            )
           ) : (
             <div className="markdown-body">
               {/* Thinking indicator: show when streaming with no content and no thinking content yet */}
@@ -301,6 +404,62 @@ export function MessageBubble({
             {message.tokens} tokens
           </span>
         )}
+
+        {/* ── Action Bar (visible on hover) ── */}
+        <div
+          className={cn(
+            'flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100',
+            isUser ? 'flex-row-reverse' : 'flex-row'
+          )}
+        >
+          {/* Copy button — always available when there's text */}
+          {textContent && <CopyButton text={textContent} />}
+
+          {/* Retry button — assistant messages only, not streaming */}
+          {isAssistant && !isStreaming && textContent && (
+            <button
+              onClick={handleRetry}
+              disabled={isRetrying}
+              className="flex items-center gap-1 rounded px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:opacity-50"
+              title="Retry"
+            >
+              <RefreshCw className={cn('h-3 w-3', isRetrying && 'animate-spin')} />
+              <span>Retry</span>
+            </button>
+          )}
+
+          {/* Edit button — user messages only */}
+          {isUser && !isStreaming && !isEditing && textContent && (
+            <button
+              onClick={handleStartEdit}
+              className="flex items-center gap-1 rounded px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+              title="Edit"
+            >
+              <Pencil className="h-3 w-3" />
+              <span>Edit</span>
+            </button>
+          )}
+
+          {/* Edit save/cancel buttons */}
+          {isEditing && (
+            <>
+              <button
+                onClick={handleSaveEdit}
+                disabled={!editContent.trim()}
+                className="flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-emerald-400 transition-colors hover:bg-emerald-500/10 disabled:opacity-50"
+              >
+                <Check className="h-3 w-3" />
+                Save
+              </button>
+              <button
+                onClick={handleCancelEdit}
+                className="flex items-center gap-1 rounded px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+              >
+                Cancel
+              </button>
+            </>
+          )}
+        </div>
       </div>
     </motion.div>
   );
