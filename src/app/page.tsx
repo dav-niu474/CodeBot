@@ -80,9 +80,9 @@ export default function Home() {
       <KeyboardShortcuts />
 
       {/* Main Content Area */}
-      <main className="flex flex-1 flex-col overflow-hidden pb-14 md:pb-0">
+      <main className="flex flex-1 flex-col overflow-hidden pb-14 lg:pb-0">
         {/* Mobile Header */}
-        <div className="flex items-center gap-3 border-b border-border/50 px-4 py-3 md:hidden">
+        <div className="flex items-center gap-3 border-b border-border/50 px-4 py-3 lg:hidden">
           <MobileSidebarTrigger />
           <div className="flex items-center gap-2">
             <div className="flex h-7 w-7 items-center justify-center rounded-md bg-emerald-500/15">
@@ -112,7 +112,7 @@ export default function Home() {
       </main>
 
       {/* Mobile Bottom Nav */}
-      <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-border/50 bg-background/95 backdrop-blur-xl md:hidden">
+      <nav aria-label="Main navigation" className="fixed bottom-0 left-0 right-0 z-30 border-t border-border/50 bg-background/95 backdrop-blur-xl lg:hidden">
         <div className="flex items-center justify-around py-2 safe-bottom">
           {[
             { view: 'dashboard' as const, icon: LayoutDashboard, label: 'Home' },
@@ -126,6 +126,8 @@ export default function Home() {
               <button
                 key={view}
                 onClick={() => setActiveView(view)}
+                aria-label={label}
+                aria-current={isActive ? 'page' : undefined}
                 className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg transition-colors ${
                   isActive
                     ? 'text-emerald-400'

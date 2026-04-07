@@ -373,7 +373,7 @@ export function WelcomeState() {
 
   const capabilities: CapabilityCard[] = [
     {
-      icon: <Wrench className="h-4.5 w-4.5 text-sky-400" />,
+      icon: <Wrench className="h-5 w-5 text-sky-400" />,
       title: t.welcome.toolExecution,
       description: t.welcome.toolExecutionDesc,
       color: 'text-sky-400',
@@ -381,7 +381,7 @@ export function WelcomeState() {
       borderColor: 'border-sky-500/15 hover:border-sky-500/30',
     },
     {
-      icon: <BrainCircuit className="h-4.5 w-4.5 text-amber-400" />,
+      icon: <BrainCircuit className="h-5 w-5 text-amber-400" />,
       title: t.welcome.thinkingMode,
       description: t.welcome.thinkingModeDesc,
       color: 'text-amber-400',
@@ -389,7 +389,7 @@ export function WelcomeState() {
       borderColor: 'border-amber-500/15 hover:border-amber-500/30',
     },
     {
-      icon: <Code2 className="h-4.5 w-4.5 text-emerald-400" />,
+      icon: <Code2 className="h-5 w-5 text-emerald-400" />,
       title: t.welcome.codeGeneration,
       description: t.welcome.codeGenerationDesc,
       color: 'text-emerald-400',
@@ -397,7 +397,7 @@ export function WelcomeState() {
       borderColor: 'border-emerald-500/15 hover:border-emerald-500/30',
     },
     {
-      icon: <Search className="h-4.5 w-4.5 text-purple-400" />,
+      icon: <Search className="h-5 w-5 text-purple-400" />,
       title: t.welcome.smartSearch,
       description: t.welcome.smartSearchDesc,
       color: 'text-purple-400',

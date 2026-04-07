@@ -348,6 +348,18 @@ export function ChatView() {
     return () => window.removeEventListener('quick-action', handler);
   }, []);
 
+  // Listen for bridge-to-chat handoff
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as string;
+      setInput(detail);
+      textareaRef.current?.focus();
+      toast.success('Message forwarded to chat');
+    };
+    window.addEventListener('bridge-to-chat', handler);
+    return () => window.removeEventListener('bridge-to-chat', handler);
+  }, []);
+
   // Cleanup streaming speed on unmount
   useEffect(() => {
     return () => {

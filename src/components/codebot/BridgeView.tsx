@@ -46,6 +46,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { useChatStore } from '@/store/chat-store';
 
 // ─── Animation variants ──────────────────────
 const container = {
@@ -643,6 +644,19 @@ export function BridgeView() {
                                     </span>
                                     <span className="text-amber-300 shrink-0">{msg.userName}:</span>
                                     <span className="text-zinc-200 break-all">{msg.content}</span>
+                                    <button
+                                      onClick={() => {
+                                        const event = new CustomEvent('bridge-to-chat', { detail: msg.content });
+                                        window.dispatchEvent(event);
+                                        useChatStore.getState().setActiveView('chat');
+                                        toast.success('Message forwarded to chat');
+                                      }}
+                                      className="ml-auto shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] text-zinc-500 hover:text-violet-400 hover:bg-violet-500/10 transition-colors"
+                                      title="Send to Chat"
+                                    >
+                                      <MessageSquare className="h-3 w-3" />
+                                      <span>Chat</span>
+                                    </button>
                                   </>
                                 )}
 

@@ -550,7 +550,7 @@ export function SecurityView() {
                       <div className="flex items-start gap-3">
                         <div className="flex shrink-0 items-center justify-center">
                           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted ring-1 ring-border">
-                            <Icon className={`h-4.5 w-4.5 ${layer.color}`} />
+                            <Icon className={`h-5 w-5 ${layer.color}`} />
                           </div>
                         </div>
                         <div className="min-w-0 flex-1">

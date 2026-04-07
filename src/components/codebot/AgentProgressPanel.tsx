@@ -351,7 +351,7 @@ export function AgentProgressPanel({ multiAgent, userTask, onDismiss }: AgentPro
         <div className={cn(
           'border-x border-b backdrop-blur-xl',
           cfg.borderDim,
-          'bg-zinc-900/60',
+          'bg-card/80',
         )}>
           <Collapsible open={!isCollapsed} onOpenChange={(open) => setIsCollapsed(!open)}>
             {/* ─── Collapsible Header ─── */}
