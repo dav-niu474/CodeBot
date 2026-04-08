@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import {
-  chatCompletion,
+  chatCompletionStream,
   getDefaultModel,
   getModelInfo,
   type ChatMessage,
@@ -10,9 +10,11 @@ import {
 import { getCoreToolSchemas, getToolMeta } from "@/lib/tools/definitions";
 import { executeTool } from "@/lib/tools/executor";
 import type { ToolExecutionResult, ToolExecutionContext } from "@/lib/tools/types";
+import { checkToolPermission } from "@/lib/tools/permissions";
 import { compressMessages, needsCompression, DEFAULT_COMPRESSION_CONFIG } from "@/lib/compression";
 import { buildFullMemoryContext, processConversationForMemory } from "@/lib/memory/memory-manager";
 import { isPlanMode } from "@/lib/plan/plan-state";
+import { buildSkillSystemPrompt, getAllowedTools, discoverSkillsForPath } from "@/lib/skills/dynamic-loader";
 
 // ────────────────────────────────────────────
 // Constants
@@ -20,6 +22,7 @@ import { isPlanMode } from "@/lib/plan/plan-state";
 
 const MAX_TOOL_LOOPS = 10;
 const MAX_OUTPUT_CHARS = 8000; // Truncate tool outputs to prevent context overflow
+const MEMORY_CONTEXT_MIN_MESSAGES = 5; // Only build memory context for sessions with ≥ 5 messages
 
 /** Tool names that are blocked in plan mode (write/mutating operations) */
 const PLAN_MODE_BLOCKED_TOOLS = new Set([
@@ -30,27 +33,11 @@ const PLAN_MODE_BLOCKED_TOOLS = new Set([
   'send-message',
 ]);
 
-const SYSTEM_PROMPT = `You are CodeBot, an AI coding assistant with advanced agentic capabilities inspired by Claude Code. You can autonomously execute multi-step tasks using a rich toolkit.
+const SYSTEM_PROMPT = `You are CodeBot, an AI coding assistant inspired by Claude Code. You have access to tools for file operations, shell execution, and web search. Use them when needed to complete tasks.
 
-## Core Tools (always available)
-- **bash**: Execute shell commands (install packages, run tests, git operations)
-- **file-read / file-write / file-edit**: Read, create, and edit files on the filesystem
-- **glob / grep**: Search files by pattern or content with regex support
-- **web-search / web-fetch**: Search the web and fetch web page content
-- **todo-write**: Track multi-step tasks with status (pending/in_progress/completed)
-- **notebook-edit**: Edit Jupyter notebook (.ipynb) cells
-
-## Advanced Capabilities
-- **agent**: Spawn specialized sub-agents (Explore for codebase analysis, Plan for architecture design, general-purpose for complex tasks)
-- **tool-search**: Discover additional tools beyond the core set (config, cron, MCP, worktree, etc.)
-- **enter-plan-mode / exit-plan-mode**: Switch to read-only planning mode to analyze before making changes
-- **ask-user**: Ask the user questions when you need clarification
-
-## Guidelines
-- For complex tasks, break them down into steps and use todo-write to track progress
-- Use the agent tool to delegate sub-tasks (e.g., codebase exploration, parallel research)
-- Before making destructive changes, consider using plan mode to plan first
+Rules:
 - Always respond in the same language the user uses
+- For complex tasks, use tools step by step
 - Be accurate, concise, and provide actionable results`;
 
 function estimateTokens(text: string): number {
@@ -145,6 +132,47 @@ async function executeToolsFromCalls(
       args = {};
     }
 
+    // ── Permission check ──
+    const permResult = checkToolPermission(tc.name, args);
+    if (permResult.permission === 'deny') {
+      const deniedResult: ToolExecutionResult = {
+        output: `Tool ${tc.name} is not allowed: ${permResult.reason}`,
+        isError: true,
+        metadata: { permissionDenied: true },
+      };
+
+      sendEvent({
+        type: "tool_call_start",
+        toolCallId: tc.id,
+        toolName: tc.name,
+        arguments: tc.arguments,
+        riskLevel,
+        permissionDenied: true,
+      });
+
+      sendEvent({
+        type: "tool_call_result",
+        toolCallId: tc.id,
+        toolName: tc.name,
+        result: deniedResult.output,
+        status: "denied",
+        duration: 0,
+      });
+
+      executions.push({
+        id: tc.id,
+        name: tc.name,
+        args,
+        result: deniedResult,
+        duration: 0,
+      });
+
+      continue;
+    }
+
+    // Note: 'ask' permission is handled client-side in a future iteration.
+    // For now, we auto-allow most tools and only log dangerous patterns.
+
     // Notify client about tool call start
     sendEvent({
       type: "tool_call_start",
@@ -180,6 +208,17 @@ async function executeToolsFromCalls(
       duration,
     });
 
+    // ── Skill discovery: trigger after successful file-read, glob, grep ──
+    if (
+      (tc.name === 'file-read' || tc.name === 'glob' || tc.name === 'grep') &&
+      !result.isError
+    ) {
+      const filePath = args.path as string || args.pattern as string || '';
+      if (filePath) {
+        discoverSkillsForPath(sessionId, filePath);
+      }
+    }
+
     // Truncate large outputs
     const displayResult =
       result.output.length > MAX_OUTPUT_CHARS
@@ -202,10 +241,10 @@ async function executeToolsFromCalls(
 }
 
 // ────────────────────────────────────────────
-// Core: Run one agentic loop step
+// Core: Run one agentic loop step (streaming)
 // ────────────────────────────────────────────
 
-async function runAgenticStep(
+async function runAgenticStepStream(
   messages: ChatMessage[],
   tools: NvidiaToolDef[],
   model: string,
@@ -214,7 +253,7 @@ async function runAgenticStep(
   sessionId: string,
   sendEvent: (event: Record<string, unknown>) => void,
 ): Promise<AgenticStepResult> {
-  const response = await chatCompletion({
+  const stream = await chatCompletionStream({
     model,
     messages,
     temperature,
@@ -222,29 +261,49 @@ async function runAgenticStep(
     tools,
   });
 
-  const choice = response.choices[0];
-  const finishReason = choice.finish_reason || "";
-  const content = choice.message.content || "";
-  const usage = response.usage || null;
+  let content = '';
+  const toolCallsMap = new Map<number, { id: string; name: string; arguments: string }>();
+  let finishReason = '';
 
-  // Parse tool calls if present
-  const toolCalls: ParsedToolCall[] | null =
-    choice.message.tool_calls && choice.message.tool_calls.length > 0
-      ? choice.message.tool_calls.map((tc) => ({
-          id: tc.id,
-          name: tc.function.name,
-          arguments: tc.function.arguments,
-        }))
-      : null;
+  for await (const delta of stream) {
+    const choice = delta.choices?.[0];
+    if (!choice) continue;
+
+    // Stream content immediately to client
+    if (choice.delta?.content) {
+      content += choice.delta.content;
+      sendEvent({ type: 'content_delta', content: choice.delta.content });
+    }
+
+    // Accumulate tool calls (they come in chunks)
+    if (choice.delta?.tool_calls) {
+      for (const tc of choice.delta.tool_calls) {
+        const existing = toolCallsMap.get(tc.index) || { id: '', name: '', arguments: '' };
+        if (tc.id) existing.id = tc.id;
+        if (tc.function?.name) existing.name = tc.function.name;
+        if (tc.function?.arguments) existing.arguments += tc.function.arguments;
+        toolCallsMap.set(tc.index, existing);
+      }
+    }
+
+    if (choice.finish_reason) {
+      finishReason = choice.finish_reason;
+    }
+  }
+
+  // Parse accumulated tool calls
+  const toolCalls: ParsedToolCall[] | null = toolCallsMap.size > 0
+    ? Array.from(toolCallsMap.values()).map(tc => ({
+        id: tc.id,
+        name: tc.name,
+        arguments: tc.arguments,
+      }))
+    : null;
 
   // Execute tools if present
   let toolExecutions: ToolExecutionRecord[] = [];
   if (toolCalls && toolCalls.length > 0) {
-    toolExecutions = await executeToolsFromCalls(
-      toolCalls,
-      sessionId,
-      sendEvent,
-    );
+    toolExecutions = await executeToolsFromCalls(toolCalls, sessionId, sendEvent);
   }
 
   return {
@@ -252,7 +311,7 @@ async function runAgenticStep(
     content,
     toolCalls,
     toolExecutions,
-    usage,
+    usage: null, // Streaming doesn't return usage in all chunks; we estimate
   };
 }
 
@@ -320,9 +379,12 @@ export async function POST(request: NextRequest) {
       take: 30,
     });
 
-    // Build memory context and enhance system prompt
-    const memoryContext = await buildFullMemoryContext(sessionId);
-    const enhancedSystemPrompt = SYSTEM_PROMPT + (memoryContext || '');
+    // Build memory context — skip for sessions with < 5 messages
+    let memoryContext = '';
+    if (totalCount > MEMORY_CONTEXT_MIN_MESSAGES) {
+      memoryContext = await buildFullMemoryContext(sessionId) || '';
+    }
+    const enhancedSystemPrompt = SYSTEM_PROMPT + (memoryContext ? '\n\n' + memoryContext : '');
 
     // Build messages array for NVIDIA API
     let chatMessages: ChatMessage[] = [
@@ -362,9 +424,22 @@ export async function POST(request: NextRequest) {
     // ── Run the agentic loop asynchronously ────────────
     (async () => {
       try {
-        // Send metadata
-        const tools = getCoreToolSchemas();
+        // Load core tools and apply skill-based filtering
+        let tools = getCoreToolSchemas();
+        const skillPrompt = buildSkillSystemPrompt(sessionId);
+        if (skillPrompt) {
+          // Inject skill prompts into system message
+          chatMessages[0] = { role: "system", content: chatMessages[0].content + '\n\n' + skillPrompt };
+        }
+
+        const skillAllowedTools = getAllowedTools(sessionId);
+        if (skillAllowedTools) {
+          tools = tools.filter(t => skillAllowedTools.includes(t.function.name));
+        }
+
         const currentPlanMode = isPlanMode(sessionId);
+
+        // Send metadata
         sendSSE({
           type: "meta",
           model: effectiveModel,
@@ -401,7 +476,7 @@ export async function POST(request: NextRequest) {
           // ── Run agentic step with responsive compression fallback ──
           let step;
           try {
-            step = await runAgenticStep(
+            step = await runAgenticStepStream(
               chatMessages,
               tools,
               effectiveModel,
@@ -437,7 +512,7 @@ export async function POST(request: NextRequest) {
                 phase: "ready",
                 detail: "Context compressed, continuing...",
               });
-              step = await runAgenticStep(
+              step = await runAgenticStepStream(
                 chatMessages,
                 tools,
                 effectiveModel,
@@ -451,10 +526,13 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          // Track usage
+          // Track usage (streaming may not return usage; estimate from content)
           if (step.usage) {
             totalPromptTokens += step.usage.prompt_tokens;
             totalCompletionTokens += step.usage.completion_tokens;
+          } else if (step.content) {
+            // Estimate tokens when streaming doesn't provide usage
+            totalCompletionTokens += estimateTokens(step.content);
           }
 
           // If no tool calls, this is the final response
@@ -502,16 +580,8 @@ export async function POST(request: NextRequest) {
           console.error('[memory] Failed to extract memories:', memErr);
         }
 
-        // ── Stream final content to client ─────────────
-        if (finalContent) {
-          // Stream in natural paragraphs for better readability
-          const paragraphs = finalContent.split(/(\n\n+)/);
-          for (const para of paragraphs) {
-            if (para.trim()) {
-              sendSSE({ content: para });
-            }
-          }
-        } else if (loopCount >= MAX_TOOL_LOOPS) {
+        // ── Handle max loop reached ──
+        if (!finalContent && loopCount >= MAX_TOOL_LOOPS) {
           sendSSE({
             content:
               "I've reached the maximum number of tool execution steps. Let me summarize what I've done so far.",

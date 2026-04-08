@@ -807,31 +807,32 @@ const TOOL_SCHEMAS: Record<string, NvidiaToolDef> = {
 
 // ────────────────────────────────────────────
 // Core tool ID set (for fast lookup)
+// Claude Code pattern: minimal default tools, expandable on demand.
+// Only the 6 most essential tools are always loaded into model context.
+// Other tools can be discovered via tool-search and loaded dynamically.
 // ────────────────────────────────────────────
 
 const CORE_TOOL_IDS = new Set([
   "bash",
   "file-read",
-  "file-write",
   "file-edit",
   "glob",
   "grep",
-  "agent",
   "web-search",
-  "web-fetch",
-  "send-message",
-  "todo-write",
-  "ask-user",
-  "notebook-edit",
-  "brief",
 ]);
 
 // ────────────────────────────────────────────
-// Expandable tool IDs (lazy + flag tools that can be
-// dynamically loaded on demand via tool-search)
+// Expandable tool IDs (tools loaded on demand via tool-search)
+// Claude Code pattern: these tools are NOT sent in the initial request
+// to reduce context size. The model discovers them via tool-search.
 // ────────────────────────────────────────────
 
 const EXPANDABLE_TOOL_IDS = new Set([
+  // Previously core — now expandable for faster simple queries
+  "file-write", "agent", "web-fetch",
+  "send-message", "todo-write", "ask-user",
+  "notebook-edit", "brief",
+  // Lazy-loaded tools
   "tool-search", "config", "enter-plan-mode", "exit-plan-mode",
   "schedule-cron", "remote-trigger", "sleep", "mcp",
   "list-mcp-resources", "read-mcp-resource", "mcp-auth",

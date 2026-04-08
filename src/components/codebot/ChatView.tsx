@@ -526,14 +526,28 @@ export function ChatView() {
 
                   // ── V3 Protocol Events ────────────────────
 
-                  // Loop iteration — agent is thinking / deciding what to do next
+                  // Loop iteration — Claude Code style: semantic phase, no loop numbers
                   if (data.type === 'loop_iteration') {
                     const iter = data.iteration || 1;
+                    const phase = data.phase || (iter === 1 ? 'thinking' : 'executing');
                     setAgenticStatus({
-                      phase: 'thinking',
-                      detail: iter > 1 ? 'Re-evaluating with tool results' : 'Analyzing request',
+                      phase: phase === 'thinking' ? 'thinking' : 'executing_tools',
+                      detail: phase === 'thinking'
+                        ? 'Analyzing request...'
+                        : 'Processing tool results...',
                       loopIteration: iter,
                     });
+                    continue;
+                  }
+
+                  // Real-time content streaming (token by token)
+                  if (data.type === 'content_delta') {
+                    if (!firstContentReceived) {
+                      firstContentReceived = true;
+                      setAgenticStatus({ phase: 'generating', detail: '' });
+                    }
+                    fullContent += data.content || '';
+                    updateMessage(streamMsgId, { content: fullContent });
                     continue;
                   }
 
@@ -609,13 +623,15 @@ export function ChatView() {
                     continue;
                   }
 
-                  // Tool call result — show completed/error state
+                  // Tool call result — show completed/error/denied state
                   if (data.type === 'tool_call_result') {
                     const tc = toolCallDisplays.find(
                       (t) => t.toolCallId === data.toolCallId
                     );
                     if (tc) {
                       if (data.status === 'blocked') {
+                        tc.status = 'blocked';
+                      } else if (data.status === 'denied') {
                         tc.status = 'blocked';
                       } else if (data.status === 'error') {
                         tc.status = 'error';
@@ -641,11 +657,12 @@ export function ChatView() {
                     continue;
                   }
 
-                  // Meta event — plan mode state
+                  // Meta event — plan mode state, tool count, model info
                   if (data.type === 'meta') {
                     if (data.plan_mode) {
                       setAgenticStatus({ phase: 'thinking', detail: '📋 Plan mode active — read-only' });
                     }
+                    // Claude Code pattern: show minimal metadata, no clutter
                     continue;
                   }
 
