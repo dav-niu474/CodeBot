@@ -190,6 +190,49 @@ const phaseConfig: Record<AgenticPhase, { icon: string; label: string; colorClas
 };
 
 // ────────────────────────────────────────────
+// Helper: Estimate task complexity from user message
+// Simple Q&A → skip task plan panel; Complex multi-step → show plan panel
+// ────────────────────────────────────────────
+
+function estimateTaskComplexity(message: string): 'simple' | 'complex' {
+  const trimmed = message.trim();
+
+  // Very short messages are likely simple
+  if (trimmed.length < 15) return 'simple';
+
+  // Greetings / casual
+  if (/^(hi|hello|hey|你好|嗨|早上好|晚上好|thanks?|thank you|谢谢|再见|bye|ok|好的|嗯|哦|哈哈)[\s!！.。,，?？]*$/i.test(trimmed)) return 'simple';
+
+  // Pure question patterns (what is / how to / explain / translate)
+  if (/^(what is|what are|what's|who is|who's|where is|when is|why is|how to|how do|how does|explain|define|describe|translate|帮我|什么是|怎么|为什么|解释一下|翻译|介绍一下)[\s?？]/i.test(trimmed)) return 'simple';
+
+  // Short question ending with ?
+  if (trimmed.length < 60 && /[?？]$/.test(trimmed)) return 'simple';
+
+  // Complex signals: action verbs that imply multi-step work
+  const complexPatterns = [
+    /\b(build|create|make|implement|develop|design|refactor|debug|fix|write|generate|deploy|migrate|optimize|analyze|set up|configure|install|integrate|add|remove|update|rewrite)\b/i,
+    /\b(帮我|创建|实现|修复|重构|优化|部署|开发|设计|搭建|配置|安装|集成|添加|删除|修改|编写|生成)\b/,
+    // Multiple sentences or numbered steps
+    /(\n.*?){2,}/,
+    /\d+\s*[.、)）]/,
+    // Code-like content
+    /```|import |export |function |class |const |let |var /,
+    // File paths
+    /\/[\w.-]+\/[\w.-]+/,
+    // Multi-task indicators
+    /and then|after that|then |first |second |next |finally |并且|然后|接着|之后|最后|首先/i,
+  ];
+
+  for (const pattern of complexPatterns) {
+    if (pattern.test(trimmed)) return 'complex';
+  }
+
+  // Default: moderate-length messages without complex signals → simple
+  return 'simple';
+}
+
+// ────────────────────────────────────────────
 // Helper: Create a new session via API
 // ────────────────────────────────────────────
 
@@ -285,6 +328,7 @@ export function ChatView() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController>(null);
+  const complexityRef = useRef<'simple' | 'complex'>('simple');
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -375,15 +419,11 @@ export function ChatView() {
   const sendToAPI = useCallback(
     async (userMessage: string, sessionId: string) => {
       setLoading(true);
+      setTaskPlanItems([]);
 
-      // Add initial planning step to task plan immediately
-      setTaskPlanItems([{
-        id: `plan-${Date.now()}`,
-        title: 'Analyzing your request',
-        description: 'Agent is reading your message and planning the approach',
-        status: 'in_progress' as const,
-        startedAt: new Date().toISOString(),
-      }]);
+      // Estimate complexity — only show task plan for complex tasks
+      const complexity = estimateTaskComplexity(userMessage);
+      complexityRef.current = complexity;
 
       // Create placeholder assistant message for streaming
       const streamMsgId = `msg-stream-${Date.now()}`;
@@ -531,7 +571,7 @@ export function ChatView() {
 
                   // ── V3 Protocol Events ────────────────────
 
-                  // Loop iteration indicator — convert to readable task plan step
+                  // Loop iteration indicator
                   if (data.type === 'loop_iteration') {
                     const iter = data.iteration || 1;
                     setAgenticStatus({
@@ -539,33 +579,36 @@ export function ChatView() {
                       detail: iter > 1 ? 'Re-evaluating with tool results' : 'Analyzing request & planning approach',
                       loopIteration: iter,
                     });
-                    // Add a meaningful step to task plan for each loop iteration
-                    setTaskPlanItems(prev => {
-                      // Mark any existing in_progress steps as completed first
-                      const updated = prev.map(p =>
-                        p.status === 'in_progress' ? { ...p, status: 'completed' as const, completedAt: new Date().toISOString() } : p
-                      );
-                      // Only add a new iteration step if we haven't seen this iteration yet
-                      const existingIterStep = updated.find(p => p.id === `iter-${iter}`);
-                      if (existingIterStep) return updated;
-                      const stepTitle = iter === 1
-                        ? 'Step 1: Analyzing request'
-                        : `Step ${iter}: Processing results & deciding next action`;
-                      const stepDesc = iter === 1
-                        ? 'Reading your message and determining what tools to use'
-                        : 'Reviewing tool outputs and planning the next step';
-                      return [...updated, {
-                        id: `iter-${iter}`,
-                        title: stepTitle,
-                        description: stepDesc,
-                        status: 'in_progress' as const,
-                        startedAt: new Date().toISOString(),
-                      }];
-                    });
+                    // Only add task plan steps for complex tasks, and skip iteration 1
+                    // (iteration 1 alone just means the model is thinking, not necessarily doing multi-step work)
+                    if (complexityRef.current === 'complex') {
+                      setTaskPlanItems(prev => {
+                        const updated = prev.map(p =>
+                          p.status === 'in_progress' ? { ...p, status: 'completed' as const, completedAt: new Date().toISOString() } : p
+                        );
+                        const existingIterStep = updated.find(p => p.id === `iter-${iter}`);
+                        if (existingIterStep) return updated;
+                        // Iteration 1: skip (model is just reading the prompt)
+                        // Iteration 2+: model is doing multi-step reasoning
+                        if (iter <= 1 && prev.length === 0) return updated;
+                        const stepTitle = prev.length === 0
+                          ? 'Step 1: Analyzing request'
+                          : `Step ${prev.length + 1}: Processing results & deciding next action`;
+                        return [...updated, {
+                          id: `iter-${iter}`,
+                          title: stepTitle,
+                          description: prev.length === 0
+                            ? 'Reading your message and determining what tools to use'
+                            : 'Reviewing tool outputs and planning the next step',
+                          status: 'in_progress' as const,
+                          startedAt: new Date().toISOString(),
+                        }];
+                      });
+                    }
                     continue;
                   }
 
-                  // Tool call start — show executing state
+                  // Tool call start — always show task plan when tools are invoked (agent is doing real work)
                   if (data.type === 'tool_call_start') {
                     setAgenticStatus({
                       phase: 'executing_tools',
@@ -582,15 +625,26 @@ export function ChatView() {
                     };
                     toolCallDisplays.push(newTc);
                     syncToolDisplays();
-                    // Add tool call step to task plan
+                    // Add tool call step to task plan (first tool call also triggers plan visibility)
                     const briefArgs = typeof data.arguments === 'string'
                       ? data.arguments.length > 60 ? data.arguments.slice(0, 60) + '...' : data.arguments
                       : '';
                     setTaskPlanItems(prev => {
+                      // If this is the first tool call and task plan is empty, seed it
+                      const seeded = prev.length === 0
+                        ? [{
+                            id: `plan-${Date.now()}`,
+                            title: 'Executing task',
+                            description: 'Agent determined tools are needed to fulfill your request',
+                            status: 'completed' as const,
+                            startedAt: new Date(Date.now() - 1000).toISOString(),
+                            completedAt: new Date().toISOString(),
+                          }]
+                        : prev;
                       const updated = prev.map(p =>
                         p.status === 'in_progress' ? { ...p, status: 'completed' as const, completedAt: new Date().toISOString() } : p
                       );
-                      return [...updated, {
+                      return [...seeded, {
                         id: `tool-${data.toolCallId}`,
                         title: `${data.toolName}${briefArgs ? `: ${briefArgs}` : ''}`,
                         description: briefArgs,
@@ -639,6 +693,10 @@ export function ChatView() {
                     updateMessage(streamMsgId, { thinkingContent: fullThinking });
                     if (!firstContentReceived) {
                       setAgenticStatus({ phase: 'thinking', detail: 'Deep reasoning in progress' });
+                      // If reasoning is substantial, this is a complex response — show plan
+                      if (fullThinking.length > 100 && complexityRef.current === 'simple') {
+                        complexityRef.current = 'complex';
+                      }
                     }
                   }
                   // Handle legacy tool_calls (V2 format)
@@ -654,19 +712,21 @@ export function ChatView() {
                     if (!firstContentReceived) {
                       firstContentReceived = true;
                       setAgenticStatus({ phase: 'generating', detail: 'Generating response...' });
-                      // Add generating step to task plan
-                      generatingStepId = `generating-${Date.now()}`;
-                      setTaskPlanItems(prev => {
-                        const updated = prev.map(p =>
-                          p.status === 'in_progress' ? { ...p, status: 'completed' as const, completedAt: new Date().toISOString() } : p
-                        );
-                        return [...updated, {
-                          id: generatingStepId!,
-                          title: 'Generating response',
-                          status: 'in_progress' as const,
-                          startedAt: new Date().toISOString(),
-                        }];
-                      });
+                      // Add generating step to task plan only if plan is already visible (complex task)
+                      if (complexityRef.current === 'complex') {
+                        generatingStepId = `generating-${Date.now()}`;
+                        setTaskPlanItems(prev => {
+                          const updated = prev.map(p =>
+                            p.status === 'in_progress' ? { ...p, status: 'completed' as const, completedAt: new Date().toISOString() } : p
+                          );
+                          return [...updated, {
+                            id: generatingStepId!,
+                            title: 'Composing final response',
+                            status: 'in_progress' as const,
+                            startedAt: new Date().toISOString(),
+                          }];
+                        });
+                      }
                     }
                     fullContent += data.content;
                     updateMessage(streamMsgId, { content: fullContent });
