@@ -282,3 +282,25 @@ Stage Summary:
 - 修改文件: src/components/codebot/ChatView.tsx, src/lib/i18n/translations.ts
 - 总变更: +841 行, -1 行, 3 文件
 - 关键决策: TaskPlanPanel 独立于 PlanPanel 和 AgentProgressPanel，作为增量添加
+---
+Task ID: 1-9
+Agent: Main Agent
+Task: Refactor CodeBot agent capabilities referencing Claude Code architecture
+
+Work Log:
+- Cloned and analyzed https://github.com/dav-niu474/claude-code.git reference repository
+- Deep analysis of Claude Code architecture: agentic loop (QueryEngine/query), tool system (buildTool/ToolDef), sub-agents (AgentTool/runAgent/forkSubagent), permission model, plan mode, task management, skills, MCP protocol
+- Analyzed CodeBot current state: 14/44 tools active, agent tool is stub, no plan mode enforcement, no ask-user blocking
+- Implemented real Sub-Agent System in executeAgent() - runs mini agentic loop (max 5 iterations) with 3 agent types (general-purpose, Explore, Plan)
+- Added EXPANDABLE_TOOL_IDS set and getExpandableToolSchemas() for dynamic tool loading
+- Implemented plan mode enforcement blocking write tools in executeToolsFromCalls()
+- Enhanced system prompt with Claude Code-inspired documentation
+- Updated frontend: sub-agent progress tracking, plan mode status, blocked tool rendering
+- Fixed pre-existing agentCount variable declaration order bug in ChatView.tsx
+- All changes committed as e7cb649, pushed to main and master (auto-deploy triggered)
+
+Stage Summary:
+- 6 files modified: route.ts, ChatView.tsx, ToolCallBlock.tsx, definitions.ts, general.ts, types.ts
+- +343 lines, -40 lines
+- Core agent capabilities now functional: sub-agents, plan mode, tool-search
+- Vercel auto-deployment triggered via master branch push
