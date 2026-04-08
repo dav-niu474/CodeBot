@@ -142,12 +142,18 @@ const TOOL_SCHEMAS: Record<string, NvidiaToolDef> = {
 
   agent: toolSchema(
     "agent",
-    "Spawn and orchestrate sub-agents for parallel or delegated task execution",
+    "Spawn specialized sub-agents for delegated task execution. Supports Explore (read-only codebase analysis), Plan (architecture design), and general-purpose (full tool access) sub-agent types.",
     {
       type: "object",
       properties: {
-        task: { type: "string", description: "Task description for the sub-agent" },
-        model: { type: "string", description: "Model to use for the sub-agent" },
+        task: { type: "string", description: "Task description for the sub-agent to complete" },
+        description: { type: "string", description: "Short description of the sub-agent's goal (3-5 words)" },
+        subagent_type: {
+          type: "string",
+          description: "Type of sub-agent to spawn",
+          enum: ["general-purpose", "Explore", "Plan"],
+        },
+        model: { type: "string", description: "Model to use for the sub-agent (optional, uses default if not specified)" },
       },
       required: ["task"],
     }
@@ -821,6 +827,21 @@ const CORE_TOOL_IDS = new Set([
 ]);
 
 // ────────────────────────────────────────────
+// Expandable tool IDs (lazy + flag tools that can be
+// dynamically loaded on demand via tool-search)
+// ────────────────────────────────────────────
+
+const EXPANDABLE_TOOL_IDS = new Set([
+  "tool-search", "config", "enter-plan-mode", "exit-plan-mode",
+  "schedule-cron", "remote-trigger", "sleep", "mcp",
+  "list-mcp-resources", "read-mcp-resource", "mcp-auth",
+  "skill", "synthetic-output", "team-create", "team-delete",
+  "task-create", "task-get", "task-list", "task-output",
+  "task-stop", "task-update", "enter-worktree", "exit-worktree",
+  "powershell", "voice", "dream-task", "magic-docs", "repl",
+]);
+
+// ────────────────────────────────────────────
 // Exported Functions
 // ────────────────────────────────────────────
 
@@ -858,6 +879,16 @@ export function getToolSchemasByIds(ids: string[]): NvidiaToolDef[] {
  */
 export function getToolMeta(toolName: string): ClaudeToolDef | undefined {
   return ALL_CLAUDE_TOOLS.find((t) => t.id === toolName || t.name === toolName);
+}
+
+/**
+ * Get NVIDIA function-calling schemas for all expandable (lazy + flag) tools.
+ * These can be dynamically loaded on demand via tool-search.
+ */
+export function getExpandableToolSchemas(): NvidiaToolDef[] {
+  return ALL_CLAUDE_TOOLS.filter((t) => EXPANDABLE_TOOL_IDS.has(t.id)).map(
+    (t) => TOOL_SCHEMAS[t.id]
+  );
 }
 
 /**

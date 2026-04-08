@@ -934,7 +934,7 @@ export interface ToolCallDisplay {
   toolName: string;
   arguments: string;
   riskLevel?: 'low' | 'medium' | 'high' | 'critical';
-  status?: 'pending' | 'executing' | 'success' | 'error' | 'waiting_approval';
+  status?: 'pending' | 'executing' | 'success' | 'error' | 'blocked' | 'waiting_approval';
   result?: string;
   duration?: number;
   startedAt?: string;

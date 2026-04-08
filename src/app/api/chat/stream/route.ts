@@ -12,6 +12,7 @@ import { executeTool } from "@/lib/tools/executor";
 import type { ToolExecutionResult, ToolExecutionContext } from "@/lib/tools/types";
 import { compressMessages, needsCompression, DEFAULT_COMPRESSION_CONFIG } from "@/lib/compression";
 import { buildFullMemoryContext, processConversationForMemory } from "@/lib/memory/memory-manager";
+import { isPlanMode } from "@/lib/plan/plan-state";
 
 // ────────────────────────────────────────────
 // Constants
@@ -20,24 +21,37 @@ import { buildFullMemoryContext, processConversationForMemory } from "@/lib/memo
 const MAX_TOOL_LOOPS = 10;
 const MAX_OUTPUT_CHARS = 8000; // Truncate tool outputs to prevent context overflow
 
-const SYSTEM_PROMPT = `You are CodeBot, a powerful AI coding assistant with tool execution capabilities. You can:
+/** Tool names that are blocked in plan mode (write/mutating operations) */
+const PLAN_MODE_BLOCKED_TOOLS = new Set([
+  'file-write',
+  'file-edit',
+  'bash',
+  'notebook-edit',
+  'send-message',
+]);
 
-- **Execute bash commands** to run code, install packages, manage git, etc.
-- **Read, write, and edit files** on the filesystem
-- **Search files** using glob patterns and regex grep
-- **Search the web** for up-to-date information
-- **Fetch web pages** to extract content
-- **Manage todo lists** for tracking complex tasks
+const SYSTEM_PROMPT = `You are CodeBot, an AI coding assistant with advanced agentic capabilities inspired by Claude Code. You can autonomously execute multi-step tasks using a rich toolkit.
 
-When the user asks you to do something that requires tools, USE them. For example:
-- "Show me the files in src/" → use glob with pattern "src/**/*"
-- "What does package.json say?" → use file-read
-- "Search for TODO comments" → use grep with pattern "TODO"
-- "Create a hello.ts file" → use file-write
-- "Fix the bug in line 42" → use file-edit
-- "Run the test suite" → use bash with command "npm test"
+## Core Tools (always available)
+- **bash**: Execute shell commands (install packages, run tests, git operations)
+- **file-read / file-write / file-edit**: Read, create, and edit files on the filesystem
+- **glob / grep**: Search files by pattern or content with regex support
+- **web-search / web-fetch**: Search the web and fetch web page content
+- **todo-write**: Track multi-step tasks with status (pending/in_progress/completed)
+- **notebook-edit**: Edit Jupyter notebook (.ipynb) cells
 
-Always respond in the same language the user uses. Be helpful, concise, and accurate.`;
+## Advanced Capabilities
+- **agent**: Spawn specialized sub-agents (Explore for codebase analysis, Plan for architecture design, general-purpose for complex tasks)
+- **tool-search**: Discover additional tools beyond the core set (config, cron, MCP, worktree, etc.)
+- **enter-plan-mode / exit-plan-mode**: Switch to read-only planning mode to analyze before making changes
+- **ask-user**: Ask the user questions when you need clarification
+
+## Guidelines
+- For complex tasks, break them down into steps and use todo-write to track progress
+- Use the agent tool to delegate sub-tasks (e.g., codebase exploration, parallel research)
+- Before making destructive changes, consider using plan mode to plan first
+- Always respond in the same language the user uses
+- Be accurate, concise, and provide actionable results`;
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
@@ -79,10 +93,49 @@ async function executeToolsFromCalls(
   sendEvent: (event: Record<string, unknown>) => void,
 ): Promise<ToolExecutionRecord[]> {
   const executions: ToolExecutionRecord[] = [];
+  const planModeActive = isPlanMode(sessionId);
 
   for (const tc of toolCalls) {
     const meta = getToolMeta(tc.name);
     const riskLevel = meta?.riskLevel || "medium";
+
+    // ── Plan mode enforcement: block write tools ──
+    if (planModeActive && PLAN_MODE_BLOCKED_TOOLS.has(tc.name)) {
+      const blockedResult: ToolExecutionResult = {
+        output: `Plan mode is active. This operation (${tc.name}) is not allowed in plan mode. Use exit-plan-mode to return to normal execution.`,
+        isError: true,
+        metadata: { blockedByPlanMode: true, toolName: tc.name },
+      };
+
+      // Notify client about the blocked tool call
+      sendEvent({
+        type: "tool_call_start",
+        toolCallId: tc.id,
+        toolName: tc.name,
+        arguments: tc.arguments,
+        riskLevel,
+        planModeBlocked: true,
+      });
+
+      sendEvent({
+        type: "tool_call_result",
+        toolCallId: tc.id,
+        toolName: tc.name,
+        result: blockedResult.output,
+        status: "blocked",
+        duration: 0,
+      });
+
+      executions.push({
+        id: tc.id,
+        name: tc.name,
+        args: {},
+        result: blockedResult,
+        duration: 0,
+      });
+
+      continue; // Skip execution, move to next tool call
+    }
 
     // Parse arguments
     let args: Record<string, unknown>;
@@ -311,6 +364,7 @@ export async function POST(request: NextRequest) {
       try {
         // Send metadata
         const tools = getCoreToolSchemas();
+        const currentPlanMode = isPlanMode(sessionId);
         sendSSE({
           type: "meta",
           model: effectiveModel,
@@ -319,6 +373,7 @@ export async function POST(request: NextRequest) {
           v3: true, // Flag to indicate V3 protocol
           toolCount: tools.length,
           maxIterations: MAX_TOOL_LOOPS,
+          plan_mode: currentPlanMode,
         });
 
         const allToolResults: Array<{

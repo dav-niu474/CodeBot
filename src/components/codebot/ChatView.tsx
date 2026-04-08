@@ -279,6 +279,12 @@ export function ChatView() {
   const [lastUserTask, setLastUserTask] = useState<string>('');
   const [streamingCharsPerSec, setStreamingCharsPerSec] = useState<number | null>(null);
   const [isTextareaFocused, setIsTextareaFocused] = useState(false);
+  const [subAgentInfo, setSubAgentInfo] = useState<{
+    type: string;
+    description: string;
+    iteration: number;
+    maxIterations: number;
+  } | null>(null);
   const [multiAgent, setMultiAgent] = useState<MultiAgentState>(defaultMultiAgentState);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -567,8 +573,39 @@ export function ChatView() {
                     continue;
                   }
 
-                  // Tool call progress — update status text
+                  // Tool call progress — handle sub-agent events
                   if (data.type === 'tool_call_progress') {
+                    if (data.event === 'sub_agent_iteration') {
+                      setSubAgentInfo({
+                        type: data.subagentType || 'general-purpose',
+                        description: data.description || 'Sub-agent task',
+                        iteration: data.iteration || 1,
+                        maxIterations: data.maxIterations || 5,
+                      });
+                      // Add sub-agent step to task plan
+                      setTaskPlanItems(prev => {
+                        const updated = prev.map(p =>
+                          p.status === 'in_progress' ? { ...p, status: 'completed' as const, completedAt: new Date().toISOString() } : p
+                        );
+                        const agentLabel = data.subagentType === 'Explore' ? '🔍 Exploring'
+                          : data.subagentType === 'Plan' ? '📋 Planning'
+                          : '🤖 Sub-agent';
+                        return [...updated, {
+                          id: `sub-agent-${data.iteration}-${Date.now()}`,
+                          title: `${agentLabel} (loop ${data.iteration}/${data.maxIterations})`,
+                          description: data.description || 'Processing...',
+                          status: 'in_progress' as const,
+                          startedAt: new Date().toISOString(),
+                        }];
+                      });
+                    } else if (data.event === 'sub_agent_tool_call') {
+                      // Sub-agent is executing a tool within its loop
+                      setAgenticStatus({
+                        phase: 'executing_tools',
+                        detail: `Sub-agent using ${data.toolName || 'tool'}...`,
+                        toolName: data.toolName,
+                      });
+                    }
                     continue;
                   }
 
@@ -578,7 +615,13 @@ export function ChatView() {
                       (t) => t.toolCallId === data.toolCallId
                     );
                     if (tc) {
-                      tc.status = data.status === 'error' ? 'error' : 'success';
+                      if (data.status === 'blocked') {
+                        tc.status = 'blocked';
+                      } else if (data.status === 'error') {
+                        tc.status = 'error';
+                      } else {
+                        tc.status = 'success';
+                      }
                       tc.result = data.result;
                       tc.duration = data.duration;
                       tc.completedAt = new Date().toISOString();
@@ -589,12 +632,20 @@ export function ChatView() {
                       p.id === `tool-${data.toolCallId}`
                         ? {
                             ...p,
-                            status: (data.status === 'error' ? 'failed' : 'completed') as TaskPlanItem['status'],
+                            status: (data.status === 'error' ? 'failed' : data.status === 'blocked' ? 'failed' : 'completed') as TaskPlanItem['status'],
                             completedAt: new Date().toISOString(),
                             duration: data.duration,
                           }
                         : p
                     ));
+                    continue;
+                  }
+
+                  // Meta event — plan mode state
+                  if (data.type === 'meta') {
+                    if (data.plan_mode) {
+                      setAgenticStatus({ phase: 'thinking', detail: '📋 Plan mode active — read-only' });
+                    }
                     continue;
                   }
 
@@ -626,6 +677,7 @@ export function ChatView() {
                   }
                   if (data.done) {
                     setAgenticStatus({ phase: 'idle' });
+                    setSubAgentInfo(null);
                     // Mark all remaining in_progress steps as completed
                     setTaskPlanItems(prev => prev.map(p =>
                       p.status === 'in_progress'
@@ -862,6 +914,7 @@ export function ChatView() {
 
       setLoading(true);
       const config = multiAgentModeConfig[mode];
+      const agentCount = mode === 'teammate' ? 1 : multiAgent.workerCount;
       setTaskPlanItems([{
         id: `ma-plan-${Date.now()}`,
         title: `${config.label}: Decomposing task`,
@@ -885,8 +938,6 @@ export function ChatView() {
       };
       addMessage(streamMsg);
       setStreamingMessageId(streamMsgId);
-
-      const agentCount = mode === 'teammate' ? 1 : multiAgent.workerCount;
       setMultiAgent({
         phase: 'spawning',
         mode,

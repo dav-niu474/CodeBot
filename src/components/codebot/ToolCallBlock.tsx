@@ -214,6 +214,7 @@ export function ToolCallBlock({ toolCall, isLatest }: ToolCallBlockProps) {
   const isActive = toolCall.status === 'executing' || toolCall.status === 'pending';
   const isSuccess = toolCall.status === 'success';
   const isError = toolCall.status === 'error';
+  const isBlocked = toolCall.status === 'blocked';
   const isWaiting = toolCall.status === 'waiting_approval';
 
   const formattedArgs = useMemo(() => formatArguments(toolCall.arguments), [toolCall.arguments]);
@@ -223,18 +224,20 @@ export function ToolCallBlock({ toolCall, isLatest }: ToolCallBlockProps) {
     'border rounded-lg',
     isWaiting && 'border-amber-500/30',
     isError && 'border-red-500/25',
+    isBlocked && 'border-amber-500/30',
     isSuccess && risk.border,
     isActive && risk.border,
-    !isError && !isSuccess && !isActive && !isWaiting && 'border-border/50',
+    !isError && !isSuccess && !isActive && !isWaiting && !isBlocked && 'border-border/50',
   );
 
   const bgClass = cn(
     'rounded-lg',
     isWaiting && 'bg-amber-500/[0.04]',
     isError && 'bg-red-500/[0.04]',
+    isBlocked && 'bg-amber-500/[0.04]',
     isSuccess && risk.bg,
     isActive && risk.bg,
-    !isError && !isSuccess && !isActive && !isWaiting && 'bg-muted/60',
+    !isError && !isSuccess && !isActive && !isWaiting && !isBlocked && 'bg-muted/60',
   );
 
   return (
@@ -259,6 +262,7 @@ export function ToolCallBlock({ toolCall, isLatest }: ToolCallBlockProps) {
             isActive && `${risk.bg} ${risk.border} ${risk.color}`,
             isSuccess && 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400',
             isError && 'bg-red-500/10 border-red-500/20 text-red-400',
+            isBlocked && 'bg-amber-500/10 border-amber-500/20 text-amber-400',
             isWaiting && 'bg-amber-500/10 border-amber-500/20 text-amber-400',
             !toolCall.status && 'bg-muted border-border/50 text-muted-foreground',
           )}
@@ -269,6 +273,8 @@ export function ToolCallBlock({ toolCall, isLatest }: ToolCallBlockProps) {
             <CheckCircle2 className="h-3.5 w-3.5" />
           ) : isError ? (
             <XCircle className="h-3.5 w-3.5" />
+          ) : isBlocked ? (
+            <CircleStop className="h-3.5 w-3.5" />
           ) : (
             <Icon className="h-3.5 w-3.5" />
           )}
@@ -282,6 +288,7 @@ export function ToolCallBlock({ toolCall, isLatest }: ToolCallBlockProps) {
             isActive && risk.badge,
             isSuccess && 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400',
             isError && 'bg-red-500/10 border-red-500/20 text-red-400',
+            isBlocked && 'bg-amber-500/10 border-amber-500/20 text-amber-400',
             isWaiting && 'bg-amber-500/10 border-amber-500/20 text-amber-400',
             !toolCall.status && 'bg-muted/50 border-border/50 text-muted-foreground',
           )}
@@ -298,6 +305,13 @@ export function ToolCallBlock({ toolCall, isLatest }: ToolCallBlockProps) {
         {toolCall.riskLevel && (
           <span className={cn('shrink-0 text-[9px] font-medium px-1.5 py-0.5 rounded-full border', risk.badge)}>
             {risk.label}
+          </span>
+        )}
+
+        {/* Status indicator for blocked (plan mode) */}
+        {isBlocked && (
+          <span className="shrink-0 text-[9px] font-medium px-1.5 py-0.5 rounded-full border bg-amber-500/10 border-amber-500/20 text-amber-400">
+            🚫 Blocked
           </span>
         )}
 
@@ -367,7 +381,9 @@ export function ToolCallBlock({ toolCall, isLatest }: ToolCallBlockProps) {
                       'rounded-md border p-2 text-[11px] font-mono whitespace-pre-wrap break-all max-h-64 overflow-y-auto',
                       isError
                         ? 'border-red-500/20 bg-red-500/[0.04] text-red-300/80'
-                        : 'border-border/30 bg-popover/80 text-emerald-500/80',
+                        : isBlocked
+                          ? 'border-amber-500/20 bg-amber-500/[0.04] text-amber-300/80'
+                          : 'border-border/30 bg-popover/80 text-emerald-500/80',
                     )}
                   >
                     {toolCall.result}

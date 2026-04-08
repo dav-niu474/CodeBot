@@ -211,26 +211,176 @@ export async function executeBrief(
   };
 }
 
+// ──────────────────────────────────────────────
+// Sub-Agent System — Real Implementation
+// ──────────────────────────────────────────────
+
+/** Read-only tool IDs allowed in Explore and Plan sub-agents */
+const READ_ONLY_TOOL_IDS = new Set([
+  'file-read',
+  'glob',
+  'grep',
+  'web-search',
+  'web-fetch',
+]);
+
+/** Sub-agent type definitions */
+const SUB_AGENT_TYPES = ['general-purpose', 'Explore', 'Plan'] as const;
+type SubAgentType = (typeof SUB_AGENT_TYPES)[number];
+
+/** Sub-agent system prompts by type */
+const SUB_AGENT_PROMPTS: Record<SubAgentType, string> = {
+  'general-purpose': `You are a sub-agent spawned to complete a specific task. Focus on completing the task efficiently. You have access to the same tools as the main agent. When done, provide a clear summary of what you accomplished.`,
+
+  'Explore': `You are an exploration sub-agent. Your job is to quickly search and analyze the codebase. Use read-only tools (file-read, glob, grep, web-search, web-fetch) to gather information. DO NOT modify any files. Provide a comprehensive analysis of what you found.`,
+
+  'Plan': `You are a planning sub-agent. Analyze the codebase and create a detailed implementation plan. Use read-only tools to understand the current state. Output a structured plan with clear steps, dependencies, and implementation details.`,
+};
+
 /**
- * agent: Stub for sub-agent execution
- * Will be fully implemented in V4
+ * agent: Real sub-agent executor
+ *
+ * Spawns a mini agentic loop (max 5 iterations) with its own messages.
+ * Tool access depends on subagent_type:
+ *   - "general-purpose": all core tools
+ *   - "Explore": read-only tools only (file-read, glob, grep, web-search, web-fetch)
+ *   - "Plan": read-only tools only
  */
 export async function executeAgent(
   args: Record<string, unknown>,
-  _context: ToolExecutionContext,
+  context: ToolExecutionContext,
 ): Promise<ToolExecutionResult> {
   const task = args.task as string | undefined;
-  const agentType = args.type as string | undefined;
+  const description = (args.description as string) || 'sub-agent task';
+  const subagentType = (args.subagent_type as string) || 'general-purpose';
+  const model = args.model as string | undefined;
 
-  const taskDesc = task || 'no task specified';
-  const typeDesc = agentType || 'default';
+  // ── Validate required args ──
+  if (!task) {
+    return {
+      output: 'Error: "task" argument is required for the agent tool. Provide a clear description of what the sub-agent should accomplish.',
+      isError: true,
+    };
+  }
+
+  if (!SUB_AGENT_TYPES.includes(subagentType as SubAgentType)) {
+    return {
+      output: `Error: "subagent_type" must be one of: ${SUB_AGENT_TYPES.join(', ')}. Got: "${subagentType}".`,
+      isError: true,
+    };
+  }
+
+  const resolvedType = subagentType as SubAgentType;
+
+  // ── Dynamic imports to avoid circular dependencies ──
+  // (executor.ts imports this file, so we must use dynamic imports)
+  const { chatCompletion, getDefaultModel } = await import('@/lib/nvidia');
+  const { getCoreToolSchemas } = await import('@/lib/tools/definitions');
+  const { executeTool: runTool } = await import('@/lib/tools/executor');
+
+  // ── Determine allowed tools based on sub-agent type ──
+  const allTools = getCoreToolSchemas();
+  let tools;
+  if (resolvedType === 'general-purpose') {
+    tools = allTools;
+  } else {
+    // Explore and Plan: only read-only tools
+    tools = allTools.filter((t) => READ_ONLY_TOOL_IDS.has(t.function.name));
+  }
+
+  // ── Build sub-agent conversation ──
+  const subAgentSystemPrompt = SUB_AGENT_PROMPTS[resolvedType];
+  const effectiveModel = model || getDefaultModel();
+
+  const messages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string }> = [
+    { role: 'system', content: subAgentSystemPrompt },
+    { role: 'user', content: task },
+  ];
+
+  // ── Run mini agentic loop ──
+  const MAX_SUB_AGENT_ITERATIONS = 5;
+  let finalContent = '';
+  let iterationCount = 0;
+
+  for (let i = 0; i < MAX_SUB_AGENT_ITERATIONS; i++) {
+    iterationCount = i + 1;
+
+    context.onProgress?.('sub_agent_iteration', {
+      iteration: iterationCount,
+      maxIterations: MAX_SUB_AGENT_ITERATIONS,
+      subagentType: resolvedType,
+      description,
+    });
+
+    // Call the LLM
+    const response = await chatCompletion({
+      model: effectiveModel,
+      messages,
+      tools,
+      maxTokens: 4096,
+      temperature: 0.7,
+    });
+
+    const choice = response.choices[0];
+    const content = choice.message.content || '';
+    const toolCalls = choice.message.tool_calls;
+
+    // If no tool calls, this is the final response
+    if (!toolCalls || toolCalls.length === 0) {
+      finalContent = content;
+      break;
+    }
+
+    // Add assistant message (with tool call info) to the conversation
+    messages.push({ role: 'assistant', content: content || '' });
+
+    // Execute each tool call
+    for (const tc of toolCalls) {
+      let parsedArgs: Record<string, unknown>;
+      try {
+        parsedArgs = JSON.parse(tc.function.arguments);
+      } catch {
+        parsedArgs = {};
+      }
+
+      context.onProgress?.('sub_agent_tool_call', {
+        toolName: tc.function.name,
+        subagentType: resolvedType,
+        description,
+        toolCallId: tc.id,
+      });
+
+      const result = await runTool(tc.function.name, parsedArgs, context);
+
+      messages.push({
+        role: 'tool',
+        content: result.isError ? `Error: ${result.output}` : result.output,
+      });
+    }
+  }
+
+  // If the loop exhausted without a final text response, synthesize one
+  if (!finalContent) {
+    finalContent = `Sub-agent (${resolvedType}) completed ${iterationCount} iteration(s) using tools but did not produce a final summary. The tool results above contain all the information gathered.`;
+  }
+
+  // ── Truncate output to 4000 chars ──
+  const MAX_OUTPUT_CHARS = 4000;
+  const output =
+    finalContent.length > MAX_OUTPUT_CHARS
+      ? finalContent.substring(0, MAX_OUTPUT_CHARS) +
+        '\n\n[... sub-agent output truncated to 4000 characters ...]'
+      : finalContent;
 
   return {
-    output: `Sub-agent execution not yet available in V3.\n\nAgent type: ${typeDesc}\nTask: ${taskDesc}\n\nThis feature will be implemented in V4 with full multi-agent orchestration support.`,
+    output,
     metadata: {
-      type: 'agent_stub',
-      agentType: typeDesc,
-      task: taskDesc,
+      type: 'sub_agent',
+      agentType: resolvedType,
+      task,
+      description,
+      iterations: iterationCount,
+      model: effectiveModel,
     },
   };
 }
