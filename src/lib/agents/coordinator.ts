@@ -13,6 +13,9 @@ import type {
   MultiAgentStatus,
 } from './protocol';
 import { generateAgentId, estimateTokens } from './protocol';
+import { getCoreToolSchemas } from '@/lib/tools/definitions';
+import { executeTool } from '@/lib/tools/executor';
+import type { ToolExecutionContext } from '@/lib/tools/types';
 
 interface CoordinatorParams {
   task: string;
@@ -173,7 +176,7 @@ export async function runCoordinatorMode(
           totalAgents: subTasks.length,
         } as MultiAgentEvent);
 
-        // Execute the worker task via LLM
+        // Execute the worker task via LLM with tool access
         const meta = (subTask as Record<string, unknown>).metadata as { approach?: string } | undefined;
         const workerPrompt = `You are a focused worker agent. Execute the following task precisely.
 
@@ -182,22 +185,77 @@ Approach: ${meta?.approach || 'Use your best judgment'}
 
 Provide a clear, concise result. Include any relevant code, data, or findings.`;
 
-        const workerResponse = await chatCompletion({
-          model,
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a focused worker agent. Execute tasks precisely and report results concisely.',
-            },
-            { role: 'user', content: workerPrompt },
-          ],
-          temperature: 0.4,
-          maxTokens: 4096,
-        });
+        const tools = getCoreToolSchemas();
+        const toolMessages: ChatMessage[] = [
+          {
+            role: 'system',
+            content: 'You are a focused worker agent with tool access. Execute tasks precisely and report results concisely. Use tools when you need to read files, search code, run commands, or gather information to complete your task.',
+          },
+          { role: 'user', content: workerPrompt },
+        ];
 
-        const resultContent = workerResponse.choices[0]?.message?.content || 'No result produced.';
-        const inputT = workerResponse.usage?.prompt_tokens || estimateTokens(workerPrompt);
-        const outputT = workerResponse.usage?.completion_tokens || estimateTokens(resultContent);
+        let workerContent = '';
+        let totalToolCalls = 0;
+        let totalInputTokens = 0;
+        let totalOutputTokens = 0;
+        let loopCount = 0;
+        const MAX_WORKER_TOOL_LOOPS = 5;
+
+        while (loopCount < MAX_WORKER_TOOL_LOOPS) {
+          loopCount++;
+
+          const stepResponse = await chatCompletion({
+            model,
+            messages: toolMessages,
+            temperature: 0.4,
+            maxTokens: 4096,
+            tools,
+          });
+
+          totalInputTokens += stepResponse.usage?.prompt_tokens || 0;
+          totalOutputTokens += stepResponse.usage?.completion_tokens || 0;
+
+          const stepContent = stepResponse.choices[0]?.message?.content || '';
+          const stepToolCalls = stepResponse.choices[0]?.message?.tool_calls;
+
+          if (!stepToolCalls || stepToolCalls.length === 0) {
+            workerContent = stepContent;
+            break;
+          }
+
+          // Add assistant message with tool calls (content + tool_calls as content)
+          toolMessages.push({ role: 'assistant', content: stepContent || '' });
+
+          // Execute each tool call
+          for (const tc of stepToolCalls) {
+            totalToolCalls++;
+            let args: Record<string, unknown> = {};
+            try { args = JSON.parse(tc.function.arguments); } catch { args = {}; }
+
+            const toolContext: ToolExecutionContext = {
+              sessionId: worker.sessionId,
+            };
+
+            try {
+              const result = await executeTool(tc.function.name, args, toolContext);
+              toolMessages.push({
+                role: 'tool',
+                content: result.isError ? `Error: ${result.output}` : result.output,
+              });
+            } catch (toolError) {
+              const errMsg = toolError instanceof Error ? toolError.message : String(toolError);
+              toolMessages.push({
+                role: 'tool',
+                content: `Error executing tool: ${errMsg}`,
+              });
+            }
+          }
+        }
+
+        // Fallback if loop exhausted without a final text response
+        const resultContent = workerContent || 'Worker exhausted tool loops without producing a final result.';
+        const inputT = totalInputTokens || estimateTokens(workerPrompt);
+        const outputT = totalOutputTokens || estimateTokens(resultContent);
 
         // Save worker messages to DB
         await db.message.create({
@@ -223,6 +281,7 @@ Provide a clear, concise result. Include any relevant code, data, or findings.`;
           agentName: worker.name,
           content: resultContent,
           tokens: { input: inputT, output: outputT },
+          toolCalls: totalToolCalls,
         };
       })
     );
@@ -245,6 +304,7 @@ Provide a clear, concise result. Include any relevant code, data, or findings.`;
           tokens: settled.value.tokens,
           completedAgents: subTasks.filter((t) => t.status === 'completed').length,
           totalAgents: subTasks.length,
+          metadata: { toolCalls: settled.value.toolCalls || 0 },
         } as MultiAgentEvent);
       } else {
         const errorMsg = settled.reason instanceof Error ? settled.reason.message : 'Unknown error';

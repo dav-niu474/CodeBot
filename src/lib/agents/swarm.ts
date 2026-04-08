@@ -13,6 +13,9 @@ import {
   generateAgentId,
 } from './protocol';
 import { AgentMessageBus as MessageBusClass } from './protocol';
+import { getCoreToolSchemas } from '@/lib/tools/definitions';
+import { executeTool } from '@/lib/tools/executor';
+import type { ToolExecutionContext } from '@/lib/tools/types';
 
 interface SwarmParams {
   task: string;
@@ -136,22 +139,77 @@ Task: ${task}
 
 Provide your solution clearly and concisely. Include code if applicable.`;
 
-        const response = await chatCompletion({
-          model,
-          messages: [
-            {
-              role: 'system',
-              content: 'You are an independent swarm agent. Solve the task with your assigned focus area. Be concise and direct.',
-            },
-            { role: 'user', content: prompt },
-          ],
-          temperature: 0.5 + (batchStart + idx) * 0.05, // Diversity via temperature
-          maxTokens: 4096,
-        });
+        // Mini agentic tool loop for swarm agent
+        const tools = getCoreToolSchemas();
+        const toolMessages: ChatMessage[] = [
+          {
+            role: 'system',
+            content: 'You are an independent swarm agent with tool access. Solve the task with your assigned focus area. Be concise and direct. Use tools when you need to read files, search code, run commands, or gather information.',
+          },
+          { role: 'user', content: prompt },
+        ];
 
-        const resultContent = response.choices[0]?.message?.content || 'No result produced.';
-        const inputT = response.usage?.prompt_tokens || estimateTokens(prompt);
-        const outputT = response.usage?.completion_tokens || estimateTokens(resultContent);
+        let swarmContent = '';
+        let totalToolCalls = 0;
+        let totalInputTokens = 0;
+        let totalOutputTokens = 0;
+        let loopCount = 0;
+        const MAX_WORKER_TOOL_LOOPS = 5;
+
+        while (loopCount < MAX_WORKER_TOOL_LOOPS) {
+          loopCount++;
+
+          const stepResponse = await chatCompletion({
+            model,
+            messages: toolMessages,
+            temperature: 0.5 + (batchStart + idx) * 0.05, // Diversity via temperature
+            maxTokens: 4096,
+            tools,
+          });
+
+          totalInputTokens += stepResponse.usage?.prompt_tokens || 0;
+          totalOutputTokens += stepResponse.usage?.completion_tokens || 0;
+
+          const stepContent = stepResponse.choices[0]?.message?.content || '';
+          const stepToolCalls = stepResponse.choices[0]?.message?.tool_calls;
+
+          if (!stepToolCalls || stepToolCalls.length === 0) {
+            swarmContent = stepContent;
+            break;
+          }
+
+          // Add assistant message with tool calls
+          toolMessages.push({ role: 'assistant', content: stepContent || '' });
+
+          // Execute each tool call
+          for (const tc of stepToolCalls) {
+            totalToolCalls++;
+            let args: Record<string, unknown> = {};
+            try { args = JSON.parse(tc.function.arguments); } catch { args = {}; }
+
+            const toolContext: ToolExecutionContext = {
+              sessionId: agent.sessionId,
+            };
+
+            try {
+              const result = await executeTool(tc.function.name, args, toolContext);
+              toolMessages.push({
+                role: 'tool',
+                content: result.isError ? `Error: ${result.output}` : result.output,
+              });
+            } catch (toolError) {
+              const errMsg = toolError instanceof Error ? toolError.message : String(toolError);
+              toolMessages.push({
+                role: 'tool',
+                content: `Error executing tool: ${errMsg}`,
+              });
+            }
+          }
+        }
+
+        const resultContent = swarmContent || 'Swarm agent exhausted tool loops without producing a final result.';
+        const inputT = totalInputTokens || estimateTokens(prompt);
+        const outputT = totalOutputTokens || estimateTokens(resultContent);
 
         // Save messages to DB
         await db.message.create({
@@ -184,6 +242,7 @@ Provide your solution clearly and concisely. Include code if applicable.`;
           angle: agent.angle,
           content: resultContent,
           tokens: { input: inputT, output: outputT },
+          toolCalls: totalToolCalls,
         };
       })
     );
@@ -203,6 +262,7 @@ Provide your solution clearly and concisely. Include code if applicable.`;
           tokens: settled.value.tokens,
           completedAgents: completedCount,
           totalAgents: agentCount,
+          metadata: { toolCalls: settled.value.toolCalls || 0 },
         } as MultiAgentEvent);
       } else {
         const errorMsg = settled.reason instanceof Error ? settled.reason.message : 'Unknown error';

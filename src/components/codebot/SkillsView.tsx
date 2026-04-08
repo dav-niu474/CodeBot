@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useChatStore } from '@/store/chat-store';
-import type { SkillCategory } from '@/lib/types';
+import type { SkillCategory, SkillDef } from '@/lib/types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
@@ -19,6 +19,8 @@ import {
   Layers,
   Zap,
   MessageSquare,
+  RefreshCw,
+  AlertCircle,
 } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -108,9 +110,78 @@ const cardVariants = {
 // ────────────────────────────────────────────
 
 export function SkillsView() {
-  const { skills, toggleSkill, setActiveView } = useChatStore();
+  const { skills, setSkills, toggleSkill, setActiveView } = useChatStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<SkillCategory | 'all'>('all');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+
+  // ── Fetch skills from backend API ────────
+  const fetchSkills = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setIsRefreshing(true);
+    else setIsLoading(true);
+    setApiError(null);
+
+    try {
+      const res = await fetch('/api/skills');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data: SkillDef[] = await res.json();
+
+      if (!mountedRef.current) return;
+
+      // Merge API data into the store, replacing hardcoded defaults
+      if (Array.isArray(data) && data.length > 0) {
+        setSkills(data);
+      }
+    } catch (err) {
+      if (!mountedRef.current) return;
+      const message = err instanceof Error ? err.message : 'Failed to fetch skills';
+      setApiError(message);
+      console.error('[SkillsView] Failed to fetch skills:', err);
+    } finally {
+      if (mountedRef.current) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
+    }
+  }, [setSkills]);
+
+  // ── Initial load on mount ───────────────
+  useEffect(() => {
+    mountedRef.current = true;
+    fetchSkills();
+    return () => { mountedRef.current = false; };
+  }, [fetchSkills]);
+
+  // ── Toggle skill with API persistence ──
+  const handleToggleSkill = useCallback(async (skillId: string) => {
+    // Optimistic update in store
+    const skill = skills.find((s) => s.id === skillId);
+    if (!skill) return;
+    const newEnabled = !skill.isEnabled;
+    toggleSkill(skillId);
+
+    // Persist to backend
+    try {
+      const res = await fetch('/api/skills', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: skillId, isEnabled: newEnabled }),
+      });
+      if (!res.ok) {
+        // Revert on failure
+        toggleSkill(skillId);
+        const errorData = await res.json().catch(() => null);
+        setApiError(errorData?.error || `Failed to update skill (HTTP ${res.status})`);
+      }
+    } catch (err) {
+      // Revert on failure
+      toggleSkill(skillId);
+      setApiError(err instanceof Error ? err.message : 'Network error');
+    }
+  }, [skills, toggleSkill]);
 
   // ── Derived stats ────────────────────────
   const enabledCount = skills.filter((s) => s.isEnabled).length;
@@ -164,7 +235,7 @@ export function SkillsView() {
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 ring-1 ring-emerald-500/20">
                 <Sparkles className="h-5 w-5 text-emerald-400" />
               </div>
-              <div>
+              <div className="flex-1">
                 <h1 className="text-xl font-bold tracking-tight text-foreground">
                   Skills
                 </h1>
@@ -172,6 +243,15 @@ export function SkillsView() {
                   Manage specialized coding skills and workflows
                 </p>
               </div>
+              {/* Refresh button */}
+              <button
+                onClick={() => fetchSkills(true)}
+                disabled={isRefreshing}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-card transition-colors disabled:opacity-50"
+                title="Refresh skills"
+              >
+                <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              </button>
             </div>
           </motion.div>
 
@@ -292,8 +372,37 @@ export function SkillsView() {
             </div>
           </motion.div>
 
-          {/* ── Skill Grid ──────────────────────── */}
-          {filteredSkills.length > 0 ? (
+          {/* ── API Error Banner ──────────────── */}
+          {apiError && (
+            <motion.div
+              initial={{ opacity: 0, y: -5 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-4"
+            >
+              <div className="flex items-center gap-2 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2">
+                <AlertCircle className="h-4 w-4 shrink-0 text-red-400" />
+                <p className="text-xs text-red-400 flex-1">{apiError}</p>
+                <button
+                  onClick={() => setApiError(null)}
+                  className="text-xs text-red-400/60 hover:text-red-400 transition-colors"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ── Loading State ──────────────────── */}
+          {isLoading ? (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="h-[100px] rounded-xl border border-border/50 bg-card/30 animate-pulse"
+                />
+              ))}
+            </div>
+          ) : filteredSkills.length > 0 ? (
             <motion.div
               variants={containerVariants}
               initial="hidden"
@@ -320,7 +429,7 @@ export function SkillsView() {
                                   ? `ring-1 ring-inset ${colors.border}`
                                   : 'opacity-60 hover:opacity-80'
                               }`}
-                              onClick={() => toggleSkill(skill.id)}
+                              onClick={() => handleToggleSkill(skill.id)}
                             >
                               <CardContent className="p-4">
                                 <div className="flex items-start gap-3">
@@ -356,7 +465,7 @@ export function SkillsView() {
                                   <div className="flex shrink-0 items-center gap-1.5 mt-0.5">
                                     <Switch
                                       checked={skill.isEnabled}
-                                      onCheckedChange={() => toggleSkill(skill.id)}
+                                      onCheckedChange={() => handleToggleSkill(skill.id)}
                                       className="data-[state=checked]:bg-emerald-500"
                                       onClick={(e) => e.stopPropagation()}
                                     />
@@ -389,8 +498,32 @@ export function SkillsView() {
                 })}
               </AnimatePresence>
             </motion.div>
+          ) : apiError ? (
+            /* ── Error Empty State ────────────── */
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.25 }}
+            >
+              <Card className="border-border/50 bg-card/50">
+                <CardContent className="flex flex-col items-center justify-center py-16">
+                  <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-red-500/5">
+                    <AlertCircle className="h-6 w-6 text-red-400/40" />
+                  </div>
+                  <p className="text-sm font-medium text-muted-foreground">
+                    Failed to load skills
+                  </p>
+                  <button
+                    onClick={() => fetchSkills(true)}
+                    className="mt-3 text-xs font-medium text-emerald-400 hover:text-emerald-300 transition-colors"
+                  >
+                    Try again
+                  </button>
+                </CardContent>
+              </Card>
+            </motion.div>
           ) : (
-            /* ── Empty State ───────────────────── */
+            /* ── No Results Empty State ────────── */
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}

@@ -11,14 +11,47 @@ import {
   executeAskUser,
   executeBrief,
   executeAgent,
-  executeNotebookEdit,
 } from './executors/general';
+
+// Lazy tool executors (30 tools previously with no runtime)
+import {
+  executeToolSearch,
+  executeConfig,
+  executeEnterPlanMode,
+  executeExitPlanMode,
+  executeScheduleCron,
+  executeRemoteTrigger,
+  executeSleep,
+  executeVoice,
+  executeDreamTask,
+  executeMagicDocs,
+  executeRepl,
+  executeNotebookEditReal,
+  executeSyntheticOutput,
+  executeTeamCreate,
+  executeTeamDelete,
+  executeTaskCreate,
+  executeTaskGet,
+  executeTaskList,
+  executeTaskOutput,
+  executeTaskStop,
+  executeTaskUpdate,
+  executeEnterWorktree,
+  executeExitWorktree,
+  executePowerShell,
+  executeSkill,
+  executeMcp,
+  executeListMcpResources,
+  executeReadMcpResource,
+  executeMcpAuth,
+} from './executors/lazy-tools';
 
 /** Map tool IDs to executor functions */
 const executorMap: Record<
   string,
   (args: Record<string, unknown>, context: ToolExecutionContext) => Promise<ToolExecutionResult>
 > = {
+  // Core tool executors (14)
   'file-read': executeFileRead,
   'file-write': executeFileWrite,
   'file-edit': executeFileEdit,
@@ -31,8 +64,37 @@ const executorMap: Record<
   'send-message': executeSendMessage,
   'ask-user': executeAskUser,
   agent: executeAgent,
-  'notebook-edit': executeNotebookEdit,
+  'notebook-edit': executeNotebookEditReal,
   brief: executeBrief,
+  // Lazy-loaded tool executors (29)
+  'tool-search': executeToolSearch,
+  config: executeConfig,
+  'enter-plan-mode': executeEnterPlanMode,
+  'exit-plan-mode': executeExitPlanMode,
+  'schedule-cron': executeScheduleCron,
+  'remote-trigger': executeRemoteTrigger,
+  sleep: executeSleep,
+  voice: executeVoice,
+  'dream-task': executeDreamTask,
+  'magic-docs': executeMagicDocs,
+  repl: executeRepl,
+  'synthetic-output': executeSyntheticOutput,
+  'team-create': executeTeamCreate,
+  'team-delete': executeTeamDelete,
+  'task-create': executeTaskCreate,
+  'task-get': executeTaskGet,
+  'task-list': executeTaskList,
+  'task-output': executeTaskOutput,
+  'task-stop': executeTaskStop,
+  'task-update': executeTaskUpdate,
+  'enter-worktree': executeEnterWorktree,
+  'exit-worktree': executeExitWorktree,
+  powershell: executePowerShell,
+  skill: executeSkill,
+  mcp: executeMcp,
+  'list-mcp-resources': executeListMcpResources,
+  'read-mcp-resource': executeReadMcpResource,
+  'mcp-auth': executeMcpAuth,
 };
 
 /**

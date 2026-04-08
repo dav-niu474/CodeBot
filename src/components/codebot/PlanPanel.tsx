@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useChatStore } from '@/store/chat-store';
 import { useLocale } from '@/lib/i18n/use-locale';
 import { Button } from '@/components/ui/button';
@@ -23,6 +23,9 @@ import {
   AlertCircle,
   Target,
   Clock,
+  Zap,
+  XCircle,
+  BarChart3,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
@@ -35,8 +38,9 @@ interface PlanStep {
   id: number;
   title: string;
   description: string;
-  status: 'pending' | 'in-progress' | 'completed';
+  status: 'pending' | 'in-progress' | 'completed' | 'failed';
   dependencies: number[];
+  result?: string;
 }
 
 interface Plan {
@@ -75,6 +79,9 @@ export function PlanPanel() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [expandedStepId, setExpandedStepId] = useState<number | null>(null);
+  const [isAutoExecuting, setIsAutoExecuting] = useState(false);
+  const [executionSummary, setExecutionSummary] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // ── Computed values ───────────────────
   const completedCount = plan?.steps.filter((s) => s.status === 'completed').length ?? 0;
@@ -145,9 +152,16 @@ export function PlanPanel() {
 
   // ── Clear plan ────────────────────────
   const handleClearPlan = useCallback(() => {
+    // Abort any running auto-execution
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
     setPlan(null);
     setTaskInput('');
     setExpandedStepId(null);
+    setIsAutoExecuting(false);
+    setExecutionSummary(null);
   }, []);
 
   // ── Execute plan (send all steps as messages) ──
@@ -173,6 +187,144 @@ export function PlanPanel() {
 
     toast.success(t.plan.executePlan);
   }, [plan, addMessage, t]);
+
+  // ── Auto Execute plan via SSE ──────────
+  const handleAutoExecute = useCallback(async () => {
+    if (!plan || isAutoExecuting) return;
+
+    // Abort any previous execution
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    setIsAutoExecuting(true);
+    setExecutionSummary(null);
+
+    // Reset all step statuses to pending
+    setPlan((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        steps: prev.steps.map((s) => ({ ...s, status: 'pending' as const, result: undefined })),
+      };
+    });
+
+    try {
+      const res = await fetch('/api/plan/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: `plan-exec-${Date.now()}`,
+          plan: {
+            goal: plan.goal,
+            steps: plan.steps.map((s) => ({
+              id: s.id,
+              title: s.title,
+              description: s.description,
+              dependencies: s.dependencies,
+            })),
+          },
+          model: selectedModel,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errData.error || 'Failed to start plan execution');
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('No response body');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data: ')) continue;
+
+          try {
+            const event = JSON.parse(trimmed.slice(6));
+
+            switch (event.type) {
+              case 'plan_step_start':
+                setPlan((prev) => {
+                  if (!prev) return prev;
+                  return {
+                    ...prev,
+                    steps: prev.steps.map((s) =>
+                      s.id === event.stepId ? { ...s, status: 'in-progress' as const } : s
+                    ),
+                  };
+                });
+                break;
+
+              case 'plan_step_complete':
+                setPlan((prev) => {
+                  if (!prev) return prev;
+                  return {
+                    ...prev,
+                    steps: prev.steps.map((s) =>
+                      s.id === event.stepId
+                        ? { ...s, status: 'completed' as const, result: event.result }
+                        : s
+                    ),
+                  };
+                });
+                break;
+
+              case 'plan_step_failed':
+                setPlan((prev) => {
+                  if (!prev) return prev;
+                  return {
+                    ...prev,
+                    steps: prev.steps.map((s) =>
+                      s.id === event.stepId
+                        ? { ...s, status: 'failed' as const, result: event.error }
+                        : s
+                    ),
+                  };
+                });
+                break;
+
+              case 'plan_complete':
+                setExecutionSummary(event.summary || `Done: ${event.completedSteps}/${event.totalSteps} steps`);
+                break;
+
+              case 'plan_error':
+                setExecutionSummary(`Error: ${event.error}`);
+                toast.error('Plan execution error', { description: event.error });
+                break;
+            }
+          } catch {
+            // Ignore JSON parse errors for non-data lines
+          }
+        }
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setExecutionSummary('Execution cancelled');
+      } else {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        setExecutionSummary(`Error: ${msg}`);
+        toast.error('Plan execution failed', { description: msg });
+      }
+    } finally {
+      setIsAutoExecuting(false);
+      abortControllerRef.current = null;
+    }
+  }, [plan, isAutoExecuting, selectedModel]);
 
   // ── Export plan as Markdown ───────────
   const handleExportPlan = useCallback(() => {
@@ -210,6 +362,8 @@ export function PlanPanel() {
         return <CheckCircle2 className="h-4 w-4 text-emerald-400" />;
       case 'in-progress':
         return <Loader2 className="h-4 w-4 text-amber-400 animate-spin" />;
+      case 'failed':
+        return <XCircle className="h-4 w-4 text-red-400" />;
       default:
         return <Circle className="h-4 w-4 text-zinc-500" />;
     }
@@ -220,11 +374,13 @@ export function PlanPanel() {
       pending: { label: t.plan.pending, color: 'text-zinc-400', bg: 'bg-zinc-500/10', border: 'border-zinc-500/20' },
       'in-progress': { label: t.plan.inProgress, color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/20' },
       completed: { label: t.plan.completed, color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
+      failed: { label: 'Failed', color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20' },
     };
     const c = config[status];
     return (
       <Badge variant="outline" className={cn('gap-0.5 px-1.5 py-0 text-[9px]', c.border, c.bg, c.color)}>
         {status === 'in-progress' && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+        {status === 'failed' && <XCircle className="h-2.5 w-2.5" />}
         {c.label}
       </Badge>
     );
@@ -413,7 +569,7 @@ export function PlanPanel() {
                                 <div
                                   className={cn(
                                     'absolute left-[11px] top-5 h-full w-px',
-                                    step.status === 'completed' ? 'bg-indigo-500/40' : 'bg-border/40'
+                                    step.status === 'completed' ? 'bg-indigo-500/40' : step.status === 'failed' ? 'bg-red-500/40' : 'bg-border/40'
                                   )}
                                 />
                               )}
@@ -494,7 +650,28 @@ export function PlanPanel() {
                         <Button
                           variant="outline"
                           size="sm"
+                          onClick={handleAutoExecute}
+                          disabled={isAutoExecuting}
+                          className={cn(
+                            'h-7 gap-1.5 text-[10px] font-medium transition-all duration-200',
+                            isAutoExecuting
+                              ? 'border-violet-500/30 bg-violet-500/15 text-violet-300'
+                              : 'border-violet-500/20 bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 hover:text-violet-300'
+                          )}
+                        >
+                          {isAutoExecuting ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Zap className="h-3 w-3" />
+                          )}
+                          {isAutoExecuting ? 'Executing...' : 'Auto Execute'}
+                        </Button>
+
+                        <Button
+                          variant="outline"
+                          size="sm"
                           onClick={handleExecutePlan}
+                          disabled={isAutoExecuting}
                           className="h-7 gap-1.5 border-indigo-500/20 bg-indigo-500/10 text-[10px] font-medium text-indigo-400 hover:bg-indigo-500/20 hover:text-indigo-300"
                         >
                           <Play className="h-3 w-3" />
@@ -527,6 +704,21 @@ export function PlanPanel() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          onClick={() => {
+                            if (abortControllerRef.current) {
+                              abortControllerRef.current.abort();
+                            }
+                          }}
+                          disabled={!isAutoExecuting}
+                          className="h-7 gap-1.5 text-[10px] text-red-400/60 hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <XCircle className="h-3 w-3" />
+                          Stop
+                        </Button>
+
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={handleClearPlan}
                           className="ml-auto h-7 gap-1.5 text-[10px] text-muted-foreground/60 hover:bg-destructive/10 hover:text-destructive"
                         >
@@ -534,6 +726,32 @@ export function PlanPanel() {
                           {t.plan.clearPlan}
                         </Button>
                       </motion.div>
+
+                      {/* Execution Summary */}
+                      {executionSummary && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className={cn(
+                            'flex items-center gap-2 rounded-lg border p-2.5',
+                            executionSummary.startsWith('Error')
+                              ? 'border-red-500/20 bg-red-500/5'
+                              : executionSummary.includes('cancelled')
+                              ? 'border-amber-500/20 bg-amber-500/5'
+                              : 'border-emerald-500/20 bg-emerald-500/5'
+                          )}
+                        >
+                          <BarChart3 className={cn(
+                            'h-3.5 w-3.5 shrink-0',
+                            executionSummary.startsWith('Error')
+                              ? 'text-red-400'
+                              : executionSummary.includes('cancelled')
+                              ? 'text-amber-400'
+                              : 'text-emerald-400'
+                          )} />
+                          <span className="text-[11px] text-muted-foreground">{executionSummary}</span>
+                        </motion.div>
+                      )}
                     </motion.div>
                   )}
 
