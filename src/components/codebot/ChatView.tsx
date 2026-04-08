@@ -8,6 +8,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { MessageBubble, MessageListLoading, WelcomeState } from './MessageBubble';
 import { PlanPanel } from './PlanPanel';
+import { TaskPlanPanel } from './TaskPlanPanel';
+import type { TaskPlanItem } from './TaskPlanPanel';
 import { ChatToolbar } from './ChatToolbar';
 import { AgentProgressPanel } from './AgentProgressPanel';
 import {
@@ -273,6 +275,8 @@ export function ChatView() {
   const [clearAllConfirm, setClearAllConfirm] = useState(false);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const [agenticStatus, setAgenticStatus] = useState<AgenticStatus>({ phase: 'idle' });
+  const [taskPlanItems, setTaskPlanItems] = useState<TaskPlanItem[]>([]);
+  const [lastUserTask, setLastUserTask] = useState<string>('');
   const [streamingCharsPerSec, setStreamingCharsPerSec] = useState<number | null>(null);
   const [isTextareaFocused, setIsTextareaFocused] = useState(false);
   const [multiAgent, setMultiAgent] = useState<MultiAgentState>(defaultMultiAgentState);
@@ -371,6 +375,7 @@ export function ChatView() {
   const sendToAPI = useCallback(
     async (userMessage: string, sessionId: string) => {
       setLoading(true);
+      setTaskPlanItems([]);
 
       // Create placeholder assistant message for streaming
       const streamMsgId = `msg-stream-${Date.now()}`;
@@ -392,6 +397,9 @@ export function ChatView() {
       // Reset agentic status
       setAgenticStatus({ phase: 'idle' });
       setStreamingCharsPerSec(null);
+
+      // Track generating step ID
+      let generatingStepId: string | null = null;
 
       // Track V3 tool call displays
       const toolCallDisplays: Array<{
@@ -522,6 +530,19 @@ export function ChatView() {
                       detail: 'Analyzing...',
                       loopIteration: data.iteration,
                     });
+                    // Add thinking step to task plan
+                    setTaskPlanItems(prev => {
+                      // Mark any existing in_progress steps as completed first
+                      const updated = prev.map(p =>
+                        p.status === 'in_progress' ? { ...p, status: 'completed' as const, completedAt: new Date().toISOString() } : p
+                      );
+                      return [...updated, {
+                        id: `thinking-${data.iteration ?? Date.now()}`,
+                        title: `Analyzing (iteration ${data.iteration ?? prev.filter(p => p.title.startsWith('Analyzing')).length + 1})`,
+                        status: 'in_progress' as const,
+                        startedAt: new Date().toISOString(),
+                      }];
+                    });
                     continue;
                   }
 
@@ -542,6 +563,22 @@ export function ChatView() {
                     };
                     toolCallDisplays.push(newTc);
                     syncToolDisplays();
+                    // Add tool call step to task plan
+                    const briefArgs = typeof data.arguments === 'string'
+                      ? data.arguments.length > 60 ? data.arguments.slice(0, 60) + '...' : data.arguments
+                      : '';
+                    setTaskPlanItems(prev => {
+                      const updated = prev.map(p =>
+                        p.status === 'in_progress' ? { ...p, status: 'completed' as const, completedAt: new Date().toISOString() } : p
+                      );
+                      return [...updated, {
+                        id: `tool-${data.toolCallId}`,
+                        title: `${data.toolName}${briefArgs ? `: ${briefArgs}` : ''}`,
+                        description: briefArgs,
+                        status: 'in_progress' as const,
+                        startedAt: new Date().toISOString(),
+                      }];
+                    });
                     continue;
                   }
 
@@ -562,7 +599,17 @@ export function ChatView() {
                       tc.completedAt = new Date().toISOString();
                     }
                     syncToolDisplays();
-                    // Keep in executing_tools phase if more tools may come
+                    // Mark tool step in task plan
+                    setTaskPlanItems(prev => prev.map(p =>
+                      p.id === `tool-${data.toolCallId}`
+                        ? {
+                            ...p,
+                            status: (data.status === 'error' ? 'failed' : 'completed') as TaskPlanItem['status'],
+                            completedAt: new Date().toISOString(),
+                            duration: data.duration,
+                          }
+                        : p
+                    ));
                     continue;
                   }
 
@@ -588,12 +635,33 @@ export function ChatView() {
                     if (!firstContentReceived) {
                       firstContentReceived = true;
                       setAgenticStatus({ phase: 'generating', detail: 'Generating response...' });
+                      // Add generating step to task plan
+                      generatingStepId = `generating-${Date.now()}`;
+                      setTaskPlanItems(prev => {
+                        const updated = prev.map(p =>
+                          p.status === 'in_progress' ? { ...p, status: 'completed' as const, completedAt: new Date().toISOString() } : p
+                        );
+                        return [...updated, {
+                          id: generatingStepId!,
+                          title: 'Generating response',
+                          status: 'in_progress' as const,
+                          startedAt: new Date().toISOString(),
+                        }];
+                      });
                     }
                     fullContent += data.content;
                     updateMessage(streamMsgId, { content: fullContent });
                   }
                   if (data.done) {
                     setAgenticStatus({ phase: 'idle' });
+                    // Mark generating step as completed
+                    if (generatingStepId) {
+                      setTaskPlanItems(prev => prev.map(p =>
+                        p.id === generatingStepId
+                          ? { ...p, status: 'completed' as const, completedAt: new Date().toISOString() }
+                          : p
+                      ));
+                    }
                     updateMessage(streamMsgId, {
                       isStreaming: false,
                       tokens: data.tokens || 0,
@@ -823,6 +891,7 @@ export function ChatView() {
       if (!mode || !isMultiAgentMode) return;
 
       setLoading(true);
+      setTaskPlanItems([]);
       const config = multiAgentModeConfig[mode];
 
       const streamMsgId = `msg-stream-${Date.now()}`;
@@ -926,6 +995,20 @@ export function ChatView() {
                         : a
                     ),
                   }));
+                  // Add step to task plan on first task_assigned for each agent
+                  if (data.type === 'task_assigned') {
+                    setTaskPlanItems(tp => {
+                      const existing = tp.find(p => p.id === `agent-${data.agentId}`);
+                      if (existing) return tp;
+                      return [...tp, {
+                        id: `agent-${data.agentId}`,
+                        title: data.agentName || `Agent ${data.agentId}`,
+                        description: data.taskDescription || undefined,
+                        status: 'in_progress' as const,
+                        startedAt: new Date().toISOString(),
+                      }];
+                    });
+                  }
                   continue;
                 }
 
@@ -939,16 +1022,40 @@ export function ChatView() {
                     ),
                     completedAgents: data.completedAgents || prev.completedAgents + 1,
                   }));
+                  // Mark step in task plan
+                  setTaskPlanItems(prev => prev.map(p =>
+                    p.id === `agent-${data.agentId}`
+                      ? { ...p, status: (data.status === 'failed' ? 'failed' : 'completed') as TaskPlanItem['status'], completedAt: new Date().toISOString() }
+                      : p
+                  ));
                   continue;
                 }
 
                 if (data.type === 'aggregation_start') {
                   setMultiAgent(prev => ({ ...prev, phase: 'aggregating' as const }));
+                  // Add aggregation step to task plan
+                  setTaskPlanItems(prev => {
+                    const updated = prev.map(p =>
+                      p.status === 'in_progress' ? { ...p, status: 'completed' as const, completedAt: new Date().toISOString() } : p
+                    );
+                    return [...updated, {
+                      id: 'aggregating',
+                      title: 'Aggregating results',
+                      status: 'in_progress' as const,
+                      startedAt: new Date().toISOString(),
+                    }];
+                  });
                   continue;
                 }
 
                 if (data.type === 'aggregation_complete') {
                   setMultiAgent(prev => ({ ...prev, phase: 'done' as const, totalTokens: data.totalTokens || 0 }));
+                  // Mark aggregation step as completed in task plan
+                  setTaskPlanItems(prev => prev.map(p =>
+                    p.id === 'aggregating'
+                      ? { ...p, status: 'completed' as const, completedAt: new Date().toISOString() }
+                      : p
+                  ));
                   continue;
                 }
 
@@ -1042,6 +1149,7 @@ export function ChatView() {
 
       addMessage(userMsg);
       setInput('');
+      setLastUserTask(trimmed);
 
       // Reset textarea height
       if (textareaRef.current) {
@@ -1995,6 +2103,36 @@ export function ChatView() {
               </motion.div>
             );
           })()}
+        </AnimatePresence>
+
+        {/* ─── Task Plan Panel (unified single + multi agent) ─── */}
+        <AnimatePresence>
+          {taskPlanItems.length > 0 && isLoading && (
+            <TaskPlanPanel
+              items={taskPlanItems}
+              mode={isMultiAgentMode ? 'multi' : 'single'}
+              modeLabel={isMultiAgentMode
+                ? (multiAgentModeConfig[activeMode]?.label || 'Multi-Agent')
+                : 'Interactive'}
+              isActive={true}
+              userTask={lastUserTask}
+              onDismiss={() => setTaskPlanItems([])}
+            />
+          )}
+        </AnimatePresence>
+        <AnimatePresence>
+          {taskPlanItems.length > 0 && !isLoading && taskPlanItems.some(item => item.status !== 'pending') && (
+            <TaskPlanPanel
+              items={taskPlanItems}
+              mode={isMultiAgentMode ? 'multi' : 'single'}
+              modeLabel={isMultiAgentMode
+                ? (multiAgentModeConfig[activeMode]?.label || 'Multi-Agent')
+                : 'Interactive'}
+              isActive={false}
+              userTask={lastUserTask}
+              onDismiss={() => setTaskPlanItems([])}
+            />
+          )}
         </AnimatePresence>
 
         {/* Messages Area */}

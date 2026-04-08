@@ -302,6 +302,23 @@ export interface Translations {
     appSecretDesc: string;
     fullWebhookUrl: string;
   };
+  // Task Plan
+  taskPlan: {
+    title: string;
+    subtitle: string;
+    thinking: string;
+    generating: string;
+    aggregating: string;
+    steps: string;
+    completed: string;
+    failed: string;
+    summary: string;
+    time: string;
+    totalSteps: string;
+    success: string;
+    fail: string;
+    dismiss: string;
+  };
 };
 
 const zh: Translations = {
@@ -598,6 +615,22 @@ const zh: Translations = {
     appSecretDesc: '用于签名验证，留空则跳过验证',
     fullWebhookUrl: '完整 Webhook URL',
   },
+  taskPlan: {
+    title: '任务计划',
+    subtitle: 'Agent 执行步骤',
+    thinking: '分析任务...',
+    generating: '生成回复',
+    aggregating: '聚合结果',
+    steps: '步骤',
+    completed: '已完成',
+    failed: '失败',
+    summary: '总结',
+    time: '耗时',
+    totalSteps: '总计',
+    success: '成功',
+    fail: '失败',
+    dismiss: '关闭',
+  },
 };
 
 const en: Translations = {
@@ -893,6 +926,22 @@ const en: Translations = {
     appSecret: 'App Secret / Token',
     appSecretDesc: 'Used for signature verification. Leave empty to skip.',
     fullWebhookUrl: 'Full Webhook URL',
+  },
+  taskPlan: {
+    title: 'Task Plan',
+    subtitle: 'Agent execution steps',
+    thinking: 'Analyzing task...',
+    generating: 'Generating response',
+    aggregating: 'Aggregating results',
+    steps: 'steps',
+    completed: 'Completed',
+    failed: 'Failed',
+    summary: 'Summary',
+    time: 'Time',
+    totalSteps: 'Total',
+    success: 'Success',
+    fail: 'Fail',
+    dismiss: 'Dismiss',
   },
 };
 
