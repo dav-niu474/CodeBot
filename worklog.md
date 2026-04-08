@@ -255,3 +255,30 @@ Stage Summary:
 - New modules: src/lib/mcp/, src/lib/skills/, src/lib/plan/, src/lib/kairos/
 - New API routes: /api/mcp, /api/mcp/tools, /api/mcp/resources, /api/plan/execute
 - All Agent core capabilities now fully functional
+---
+Task ID: 1
+Agent: Super Z (Main)
+Task: 实现统一任务计划清单面板，单agent和多agent模式都能看到
+
+Work Log:
+- 分析了完整的 Agent 系统架构（ChatView, PlanPanel, AgentProgressPanel, sendToAPI, sendToMultiAgentAPI）
+- 发现单agent模式只有小状态条没有步骤清单，多agent模式AgentProgressPanel缺少清晰任务分解
+- 创建了新组件 TaskPlanPanel.tsx（654行）：统一的任务计划清单面板
+  - 单agent模式：跟踪thinking步骤、tool calls（工具名+参数）、generating
+  - 多agent模式：跟踪agent任务分配、aggregation
+  - 动画渐变条、进度条、可折叠步骤详情、完成摘要
+  - i18n 支持（中/英文）
+- 修改 ChatView.tsx（+140行）：集成TaskPlanPanel
+  - sendToAPI: loop_iteration→分析步骤, tool_call_start→工具步骤, data.content→生成步骤
+  - sendToMultiAgentAPI: task_assigned→agent步骤, aggregation_start/end
+  - handleSend: 设置 lastUserTask
+  - JSX: 在消息区域上方渲染TaskPlanPanel
+- 添加 i18n 翻译 14 个 key（zh + en）
+- Build 通过：0 错误 0 警告
+- 推送到 main 分支 commit d0473b5
+
+Stage Summary:
+- 新文件: src/components/codebot/TaskPlanPanel.tsx
+- 修改文件: src/components/codebot/ChatView.tsx, src/lib/i18n/translations.ts
+- 总变更: +841 行, -1 行, 3 文件
+- 关键决策: TaskPlanPanel 独立于 PlanPanel 和 AgentProgressPanel，作为增量添加
