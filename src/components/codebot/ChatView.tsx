@@ -161,7 +161,7 @@ const phaseConfig: Record<AgenticPhase, { icon: string; label: string; colorClas
   idle: { icon: '', label: '', colorClass: '', bgClass: '', borderClass: '' },
   thinking: {
     icon: '🧠',
-    label: 'Thinking...',
+    label: 'Analyzing request & planning approach',
     colorClass: 'text-amber-400',
     bgClass: 'bg-amber-500/5',
     borderClass: 'border-amber-500/20',
@@ -175,14 +175,14 @@ const phaseConfig: Record<AgenticPhase, { icon: string; label: string; colorClas
   },
   generating: {
     icon: '✍️',
-    label: 'Generating response...',
+    label: 'Composing response',
     colorClass: 'text-emerald-400',
     bgClass: 'bg-emerald-500/5',
     borderClass: 'border-emerald-500/20',
   },
   compressing: {
     icon: '📦',
-    label: 'Compressing context...',
+    label: 'Optimizing context',
     colorClass: 'text-purple-400',
     bgClass: 'bg-purple-500/5',
     borderClass: 'border-purple-500/20',
@@ -375,7 +375,15 @@ export function ChatView() {
   const sendToAPI = useCallback(
     async (userMessage: string, sessionId: string) => {
       setLoading(true);
-      setTaskPlanItems([]);
+
+      // Add initial planning step to task plan immediately
+      setTaskPlanItems([{
+        id: `plan-${Date.now()}`,
+        title: 'Analyzing your request',
+        description: 'Agent is reading your message and planning the approach',
+        status: 'in_progress' as const,
+        startedAt: new Date().toISOString(),
+      }]);
 
       // Create placeholder assistant message for streaming
       const streamMsgId = `msg-stream-${Date.now()}`;
@@ -523,22 +531,33 @@ export function ChatView() {
 
                   // ── V3 Protocol Events ────────────────────
 
-                  // Loop iteration indicator
+                  // Loop iteration indicator — convert to readable task plan step
                   if (data.type === 'loop_iteration') {
+                    const iter = data.iteration || 1;
                     setAgenticStatus({
                       phase: 'thinking',
-                      detail: 'Analyzing...',
-                      loopIteration: data.iteration,
+                      detail: iter > 1 ? 'Re-evaluating with tool results' : 'Analyzing request & planning approach',
+                      loopIteration: iter,
                     });
-                    // Add thinking step to task plan
+                    // Add a meaningful step to task plan for each loop iteration
                     setTaskPlanItems(prev => {
                       // Mark any existing in_progress steps as completed first
                       const updated = prev.map(p =>
                         p.status === 'in_progress' ? { ...p, status: 'completed' as const, completedAt: new Date().toISOString() } : p
                       );
+                      // Only add a new iteration step if we haven't seen this iteration yet
+                      const existingIterStep = updated.find(p => p.id === `iter-${iter}`);
+                      if (existingIterStep) return updated;
+                      const stepTitle = iter === 1
+                        ? 'Step 1: Analyzing request'
+                        : `Step ${iter}: Processing results & deciding next action`;
+                      const stepDesc = iter === 1
+                        ? 'Reading your message and determining what tools to use'
+                        : 'Reviewing tool outputs and planning the next step';
                       return [...updated, {
-                        id: `thinking-${data.iteration ?? Date.now()}`,
-                        title: `Analyzing (iteration ${data.iteration ?? prev.filter(p => p.title.startsWith('Analyzing')).length + 1})`,
+                        id: `iter-${iter}`,
+                        title: stepTitle,
+                        description: stepDesc,
                         status: 'in_progress' as const,
                         startedAt: new Date().toISOString(),
                       }];
@@ -619,7 +638,7 @@ export function ChatView() {
                     fullThinking += data.reasoning;
                     updateMessage(streamMsgId, { thinkingContent: fullThinking });
                     if (!firstContentReceived) {
-                      setAgenticStatus({ phase: 'thinking', detail: 'Reasoning...' });
+                      setAgenticStatus({ phase: 'thinking', detail: 'Deep reasoning in progress' });
                     }
                   }
                   // Handle legacy tool_calls (V2 format)
@@ -891,8 +910,14 @@ export function ChatView() {
       if (!mode || !isMultiAgentMode) return;
 
       setLoading(true);
-      setTaskPlanItems([]);
       const config = multiAgentModeConfig[mode];
+      setTaskPlanItems([{
+        id: `ma-plan-${Date.now()}`,
+        title: `${config.label}: Decomposing task`,
+        description: `Preparing to split the task across ${agentCount} ${mode === 'coordinator' ? 'worker' : mode === 'swarm' ? 'peer' : ''} agents`,
+        status: 'in_progress' as const,
+        startedAt: new Date().toISOString(),
+      }]);
 
       const streamMsgId = `msg-stream-${Date.now()}`;
       const streamMsg: Message = {
@@ -983,6 +1008,19 @@ export function ChatView() {
                     }
                     return { ...prev, phase: 'executing' as const, agents };
                   });
+                  // Mark decomposition step as completed, add spawned agent to task plan
+                  setTaskPlanItems(prev => {
+                    const updated = prev.map(p =>
+                      p.status === 'in_progress' ? { ...p, status: 'completed' as const, completedAt: new Date().toISOString() } : p
+                    );
+                    return [...updated, {
+                      id: `agent-${data.agentId || data.agentIndex}`,
+                      title: `${data.agentName || `Agent ${data.agentIndex + 1}`}: Spawning`,
+                      description: `Agent is starting up and preparing for task`,
+                      status: 'in_progress' as const,
+                      startedAt: new Date().toISOString(),
+                    }];
+                  });
                   continue;
                 }
 
@@ -995,19 +1033,19 @@ export function ChatView() {
                         : a
                     ),
                   }));
-                  // Add step to task plan on first task_assigned for each agent
+                  // Update task plan step for agent on task_assigned
                   if (data.type === 'task_assigned') {
-                    setTaskPlanItems(tp => {
-                      const existing = tp.find(p => p.id === `agent-${data.agentId}`);
-                      if (existing) return tp;
-                      return [...tp, {
-                        id: `agent-${data.agentId}`,
-                        title: data.agentName || `Agent ${data.agentId}`,
-                        description: data.taskDescription || undefined,
-                        status: 'in_progress' as const,
-                        startedAt: new Date().toISOString(),
-                      }];
-                    });
+                    setTaskPlanItems(prev => prev.map(p => {
+                      if (p.id === `agent-${data.agentId}`) {
+                        return {
+                          ...p,
+                          title: `${data.agentName || 'Agent'}: Executing task`,
+                          description: data.taskDescription || p.description,
+                          status: 'in_progress' as const,
+                        };
+                      }
+                      return p;
+                    }));
                   }
                   continue;
                 }
@@ -1040,7 +1078,8 @@ export function ChatView() {
                     );
                     return [...updated, {
                       id: 'aggregating',
-                      title: 'Aggregating results',
+                      title: 'Final step: Synthesizing results',
+                      description: 'All agents completed — now merging findings into a final answer',
                       status: 'in_progress' as const,
                       startedAt: new Date().toISOString(),
                     }];
@@ -2107,28 +2146,14 @@ export function ChatView() {
 
         {/* ─── Task Plan Panel (unified single + multi agent) ─── */}
         <AnimatePresence>
-          {taskPlanItems.length > 0 && isLoading && (
+          {taskPlanItems.length > 0 && (
             <TaskPlanPanel
               items={taskPlanItems}
               mode={isMultiAgentMode ? 'multi' : 'single'}
               modeLabel={isMultiAgentMode
                 ? (multiAgentModeConfig[activeMode]?.label || 'Multi-Agent')
-                : 'Interactive'}
-              isActive={true}
-              userTask={lastUserTask}
-              onDismiss={() => setTaskPlanItems([])}
-            />
-          )}
-        </AnimatePresence>
-        <AnimatePresence>
-          {taskPlanItems.length > 0 && !isLoading && taskPlanItems.some(item => item.status !== 'pending') && (
-            <TaskPlanPanel
-              items={taskPlanItems}
-              mode={isMultiAgentMode ? 'multi' : 'single'}
-              modeLabel={isMultiAgentMode
-                ? (multiAgentModeConfig[activeMode]?.label || 'Multi-Agent')
-                : 'Interactive'}
-              isActive={false}
+                : 'CodeBot'}
+              isActive={isLoading}
               userTask={lastUserTask}
               onDismiss={() => setTaskPlanItems([])}
             />
@@ -2194,19 +2219,9 @@ export function ChatView() {
                     {phaseConfig[agenticStatus.phase].icon}{' '}
                     {agenticStatus.toolName
                       ? `${phaseConfig[agenticStatus.phase].label}: ${agenticStatus.toolName}`
-                      : agenticStatus.loopIteration
-                        ? `${phaseConfig[agenticStatus.phase].label} (loop ${agenticStatus.loopIteration})`
-                        : phaseConfig[agenticStatus.phase].label
+                      : phaseConfig[agenticStatus.phase].label
                     }
                   </span>
-                  {agenticStatus.loopIteration && agenticStatus.loopIteration > 1 && (
-                    <Badge
-                      variant="outline"
-                      className="gap-1 border-border/50 bg-muted/50 px-1.5 py-0 text-[9px] text-muted-foreground"
-                    >
-                      Iteration {agenticStatus.loopIteration}
-                    </Badge>
-                  )}
                 </div>
                 {/* Streaming speed indicator */}
                 {agenticStatus.phase === 'generating' && streamingCharsPerSec !== null && streamingCharsPerSec > 0 && (

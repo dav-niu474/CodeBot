@@ -71,7 +71,7 @@ function ThinkingIndicator() {
   return (
     <div className="mb-2 flex items-center gap-2 px-1 py-1.5 rounded-lg bg-amber-500/5 border border-amber-500/10">
       <Brain className="h-3.5 w-3.5 text-amber-400 animate-pulse" />
-      <span className="text-xs font-medium text-amber-400">Thinking...</span>
+      <span className="text-xs font-medium text-amber-400">Analyzing & planning...</span>
     </div>
   );
 }
